@@ -86,17 +86,42 @@ final class SteelCanyonTemplateTests: XCTestCase {
         }
     }
 
+    /// Every subtotal printed on the physical card, checked against the transcribed arrays.
+    ///
+    /// This is the test that catches a transcription error, and it has already earned its keep: four
+    /// yardages were originally entered wrong (Black 14, White 14, Red 3, Red 11) and the printed subtotals
+    /// are what proved which version was right. A card's OUT, IN and TOT are an independent check on the
+    /// nine numbers above them, so if the per-hole arrays and these totals ever disagree again, one of them
+    /// was typed wrong.
     func testTeeTotalsMatchThePrintedTotals() {
-        XCTAssertEqual(template.teeSet(named: "Black")?.totalYardage, 3842)
-        XCTAssertEqual(template.teeSet(named: "White")?.totalYardage, 3397)
-        XCTAssertEqual(template.teeSet(named: "Red")?.totalYardage, 2834)
+        // (tee, printed OUT, printed IN, printed TOT) exactly as they appear on the card.
+        let printed: [(name: String, out: Int, inward: Int, total: Int)] = [
+            ("Black", 2021, 1778, 3799),
+            ("White", 1811, 1564, 3375),
+            ("Red", 1457, 1245, 2702)
+        ]
 
-        XCTAssertEqual(template.teeSet(named: "Black")?.total(holes: 1...9), 2021)
-        XCTAssertEqual(template.teeSet(named: "Black")?.total(holes: 10...18), 1821)
-        XCTAssertEqual(template.teeSet(named: "White")?.total(holes: 1...9), 1811)
-        XCTAssertEqual(template.teeSet(named: "White")?.total(holes: 10...18), 1586)
-        XCTAssertEqual(template.teeSet(named: "Red")?.total(holes: 1...9), 1484)
-        XCTAssertEqual(template.teeSet(named: "Red")?.total(holes: 10...18), 1350)
+        for tee in printed {
+            guard let set = template.teeSet(named: tee.name) else {
+                return XCTFail("Steel Canyon must define a \(tee.name) tee")
+            }
+            XCTAssertEqual(set.total(holes: 1...9), tee.out, "\(tee.name) OUT")
+            XCTAssertEqual(set.total(holes: 10...18), tee.inward, "\(tee.name) IN")
+            XCTAssertEqual(set.totalYardage, tee.total, "\(tee.name) TOTAL")
+            // The card is self-checking, so the transcription must be too.
+            XCTAssertEqual(tee.out + tee.inward, tee.total, "\(tee.name): printed OUT + IN must equal TOT")
+        }
+    }
+
+    /// Spot-checks the four holes that were transcribed incorrectly the first time.
+    ///
+    /// Named explicitly so a future regression points straight at the cause rather than at a totals
+    /// mismatch several steps removed from it.
+    func testThePreviouslyMistranscribedHolesMatchTheCard() {
+        XCTAssertEqual(template.teeSet(named: "Black")?.yardage(forHole: 14), 170, "was 213")
+        XCTAssertEqual(template.teeSet(named: "White")?.yardage(forHole: 14), 148, "was 170")
+        XCTAssertEqual(template.teeSet(named: "Red")?.yardage(forHole: 3), 67, "was 94")
+        XCTAssertEqual(template.teeSet(named: "Red")?.yardage(forHole: 11), 122, "was 227")
     }
 
     func testTemplateIsVerifiedAndMayRestoreStaticData() {

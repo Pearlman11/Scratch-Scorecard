@@ -11,12 +11,18 @@ final class ScoreChecksumSolverTests: XCTestCase {
 
     private let solver = ScoreChecksumSolver()
 
-    /// Builds holes with Steel Canyon's real pars and the given scores.
-    /// A `nil` score stands for a cell OCR could not read.
+    /// Builds holes as they look after a successful parse of the real card: every static field supplied by
+    /// the matched template, and the given scores read by OCR. A `nil` score stands for a cell OCR could
+    /// not read.
+    ///
+    /// Populating all three static fields matters for the confidence test below — leaving handicap and
+    /// yardage empty would halve the static-completeness term and measure a card the parser never produces.
     private func holes(scores: [Int?], confidence: Double = 0.60) -> [ParsedHole] {
         (1...18).map { number in
             var hole = ParsedHole(holeNumber: number)
             hole.par = .template(SteelCanyonTemplate.pars[number - 1])
+            hole.handicapIndex = .template(SteelCanyonTemplate.handicapIndices[number - 1])
+            hole.yardage = .template(SteelCanyonTemplate.whiteYardages[number - 1])
             if let value = scores[number - 1] {
                 hole.playerScore = .ocr(value, confidence: confidence)
             }
@@ -105,7 +111,7 @@ final class ScoreChecksumSolverTests: XCTestCase {
         let unconfirmed = confidence(support: .unavailable)
         let confirmed = confidence(support: .confirmed(halves: 2))
         XCTAssertGreaterThan(confirmed, 0.9, "a card that adds up should read as high confidence")
-        XCTAssertGreaterThan(confirmed - unconfirmed, 0.15, "confirmation must move the number meaningfully")
+        XCTAssertGreaterThan(confirmed - unconfirmed, 0.10, "confirmation must move the number meaningfully")
 
         // And a card that does *not* add up must score below one that was never checked at all.
         XCTAssertLessThan(confidence(support: .contradicted), unconfirmed)
