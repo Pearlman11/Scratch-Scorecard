@@ -273,23 +273,40 @@ Fixtures are synthetic OCR observations with realistic scorecard geometry, built
 
 ## Known limitations
 
-- **Not compiled or run.** This was built in a Linux environment with no Swift toolchain and no Xcode, and
-  `download.swift.org` is blocked by the sandbox's network policy. The code has been reviewed statically —
-  balanced structure, cross-module visibility, no key paths into tuples, no `ForEach` over tuple
-  sequences — but **expect to fix compile errors on first build**. Nothing here has been run on a device.
-- **The parsing algorithms have been validated**, independently of compilation: the full pipeline was
-  ported to Python and executed against every fixture scenario in the test suite, which is how the results
-  in the Steel Canyon table above were obtained. Two real algorithm bugs were found and fixed that way —
-  identity-only catalog entries scoring 1.000 against any 18-hole card, and tee selection asserting a tee
-  the card cannot know. The Swift and the validated Python implement the same logic, but they are not the
-  same code.
+- **Not yet run on a device or in a simulator.** CI proves it compiles and that the parser's tests pass;
+  nothing here has been exercised against a real camera, a real photo library, or SwiftData on disk.
+  Runtime behaviour — SwiftData migrations, permission prompts, the document scanner — is unverified.
 - **Steel Canyon has not been tested against the real photograph.** Synthetic fixtures model glyph
   confusion, skew, dropped cells and layout variation; they do not model motion blur, a folded card, a
   thumb over hole 12, or the specific typeface on the real card. Expect to tune `RowClusterer` tolerances
-  and `PlayerScoreExtractor` thresholds against the actual scan — the inspector exists for exactly that.
+  and `PlayerScoreExtractor` thresholds against the actual scan — the debug inspector exists for that.
 - **Handwriting is the weak point**, as designed for. Printed metadata is recovered reliably; handwritten
   scores route to review whenever they are not clean. The targeted cell re-read helps and is the main lever
   left to tune before reaching for a remote model.
+- **The Georgia bounding box is coarse.** It uses the state's real extents, but Georgia is not a rectangle,
+  so Tallahassee and Greenville still fall inside it. The name check in `CourseLocationResolver` is what
+  actually distinguishes a correct geocode from a nearby wrong one.
 - Fourteen of fifteen courses have no hole data until scanned once. This is the data-integrity policy, not
   a gap to fill in by hand.
 - No iPad layout, no landscape-specific design, no widgets, no sync. All out of scope for the MVP.
+
+## How this was built, and what that cost
+
+The code was written in a Linux container with no Swift toolchain and no access to the iOS SDK, so nothing
+could be compiled while it was being written. To avoid shipping unverified algorithms, the entire parsing
+pipeline was ported to Python and run against every fixture scenario in the test suite. That is where the
+Steel Canyon damage-tolerance results above came from, and it caught two real defects before any Swift was
+committed: identity-only catalog entries scoring a perfect 1.000 against any 18-hole card, and tee
+selection asserting a tee that a scorecard cannot possibly know.
+
+Compiling it on a macOS runner then caught four more that no amount of static review would have:
+
+| Defect | Why review missed it |
+|---|---|
+| `Vision.TextObservation` collides with ours | iOS 18 added it; the collision only exists with the real SDK |
+| CI reported green with 3 of 98 tests failing | `swift test \| tee` returns `tee`'s exit status |
+| Steel Canyon has twelve par 3s, not eleven | A miscount in a comment and an assertion, not in the data |
+| `RemoteParseMerger` would overwrite every score | Handwritten confidences all sit near 0.5, so any remote reading beat them |
+
+The lesson worth keeping: a validated algorithm is not a working program, and a green CI badge is not a
+passing test suite. Both had to be checked separately.
