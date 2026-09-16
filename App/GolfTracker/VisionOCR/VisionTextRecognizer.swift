@@ -3,6 +3,15 @@ import UIKit
 import Vision
 import ScorecardKit
 
+/// Disambiguates `TextObservation` for this file.
+///
+/// iOS 18's Vision framework introduced its own `Vision.TextObservation` as part of its Swift-native API,
+/// which collides with ScorecardKit's type of the same name. This is the only file that imports both
+/// frameworks, so the name is resolved once here rather than qualified at every use — and the two types
+/// genuinely are different things: Vision's is a recognizer result, ours is the spatially-anchored token
+/// the parser reasons over.
+private typealias TextObservation = ScorecardKit.TextObservation
+
 /// Reads text off a prepared scorecard image using Apple's Vision recognizer.
 ///
 /// ## Why more than one pass
