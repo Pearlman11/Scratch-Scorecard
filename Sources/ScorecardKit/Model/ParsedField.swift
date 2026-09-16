@@ -13,6 +13,14 @@ public enum FieldProvenance: String, Codable, Sendable, CaseIterable {
     case inferredFromLayout
     /// Returned by an optional remote multimodal parser.
     case multimodalFallback
+    /// Derived arithmetically from a subtotal the golfer wrote on their own card.
+    ///
+    /// When a nine has exactly one unreadable score and the golfer wrote an OUT or IN total, that total
+    /// determines the missing stroke count exactly. This is still the golfer's own data — their
+    /// handwriting, just in a different cell — which is why it is permitted for a score where
+    /// `verifiedCourseTemplate` is not. Kept distinct from `.ocr` so the review screen can say where the
+    /// number came from, and so a wrong subtotal is traceable rather than indistinguishable from a read.
+    case solvedFromSubtotal
     /// Typed or corrected by the golfer. Always wins.
     case userEdited
     /// No value.
@@ -24,7 +32,7 @@ public enum FieldProvenance: String, Codable, Sendable, CaseIterable {
     /// but it can never know what the golfer shot.
     public var isPermittedForPlayerScore: Bool {
         switch self {
-        case .ocr, .multimodalFallback, .userEdited, .none:
+        case .ocr, .multimodalFallback, .solvedFromSubtotal, .userEdited, .none:
             return true
         case .verifiedCourseTemplate, .inferredFromLayout:
             return false
@@ -93,6 +101,14 @@ public struct ParsedField<Value: Codable & Hashable & Sendable>: Codable, Hashab
 
     public static func userEdited(_ value: Value?) -> ParsedField<Value> {
         ParsedField(value: value, confidence: 1.0, provenance: .userEdited)
+    }
+
+    /// A value the golfer's own written subtotal determines exactly.
+    ///
+    /// Confidence is high but deliberately short of 1.0: the arithmetic is certain only if the subtotal
+    /// itself was read correctly, so this stays distinguishable from a value the golfer typed.
+    public static func solvedFromSubtotal(_ value: Value, confidence: Double = 0.93) -> ParsedField<Value> {
+        ParsedField(value: value, confidence: confidence, provenance: .solvedFromSubtotal)
     }
 
     public var level: ConfidenceLevel {

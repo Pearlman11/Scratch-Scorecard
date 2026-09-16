@@ -15,6 +15,7 @@ public struct DefaultScorecardParser: ScorecardParsing {
     public var staticExtractor: StaticCourseDataExtractor
     public var matcher: CourseTemplateMatching
     public var scoreExtractor: PlayerScoreExtractor
+    public var checksumSolver: ScoreChecksumSolver
     public var evaluator: ParsingConfidenceEvaluator
     public var parserName: String
 
@@ -23,6 +24,7 @@ public struct DefaultScorecardParser: ScorecardParsing {
         staticExtractor: StaticCourseDataExtractor = StaticCourseDataExtractor(),
         matcher: CourseTemplateMatching = CourseTemplateMatcher(),
         scoreExtractor: PlayerScoreExtractor = PlayerScoreExtractor(),
+        checksumSolver: ScoreChecksumSolver = ScoreChecksumSolver(),
         evaluator: ParsingConfidenceEvaluator = ParsingConfidenceEvaluator(),
         parserName: String = "DefaultScorecardParser"
     ) {
@@ -30,6 +32,7 @@ public struct DefaultScorecardParser: ScorecardParsing {
         self.staticExtractor = staticExtractor
         self.matcher = matcher
         self.scoreExtractor = scoreExtractor
+        self.checksumSolver = checksumSolver
         self.evaluator = evaluator
         self.parserName = parserName
     }
@@ -179,12 +182,31 @@ public struct DefaultScorecardParser: ScorecardParsing {
             scorecard.selectPlayer(id: onlyPlayer.id)
         }
 
+        // 7. Let the card check its own arithmetic. A nine with exactly one unreadable score is fully
+        //    determined by the subtotal the golfer wrote, which recovers precisely the cells OCR handles
+        //    worst — boxed, circled, and written-over digits — without guessing at any of them.
+        var checksumSupport = ParsingConfidenceEvaluator.ChecksumSupport.unavailable
+        if let selected = scorecard.selectedPlayer {
+            let solution = checksumSolver.solve(
+                holes: scorecard.holes,
+                writtenOut: selected.writtenOut,
+                writtenIn: selected.writtenIn,
+                writtenTotal: selected.writtenTotal,
+                holeCount: holeCount
+            )
+            scorecard.holes = solution.holes
+            scorecard.checksumSolvedHoles = solution.solvedHoles
+            checksumSupport = solution.checksumSupport
+            warnings.append(contentsOf: solution.warnings)
+        }
+
         let assessment = evaluator.evaluate(
             holes: scorecard.holes,
             holeCount: holeCount,
             players: players,
             courseConfidence: courseConfidence,
             courseResolved: appliedTemplate != nil,
+            checksumSupport: checksumSupport,
             existingWarnings: warnings
         )
         scorecard.warnings = assessment.warnings

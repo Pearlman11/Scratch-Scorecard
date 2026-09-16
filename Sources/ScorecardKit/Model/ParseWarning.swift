@@ -16,6 +16,7 @@ public struct ParseWarning: Codable, Hashable, Sendable, Identifiable {
         case teeNotIdentified
         case multipleTeeMatches
         case noPlayerRowsDetected
+        case playerCountNeedsConfirmation
         case someScoresMissing
         case someScoresLowConfidence
         case incompleteRound

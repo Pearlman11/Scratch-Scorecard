@@ -49,13 +49,25 @@ public struct DetectedPlayer: Codable, Hashable, Sendable, Identifiable {
     /// How confident the parser is that this row is a golfer's scores at all.
     public var rowConfidence: Double
 
+    // The subtotals the golfer wrote in the OUT / IN / TOTAL columns of their own row.
+    //
+    // Worth reading even though they are redundant with the per-hole scores, because they are the card's
+    // built-in checksum: a nine with one unreadable cell is fully determined by its written subtotal.
+    // They are also usually written more deliberately than the running scores, so they tend to read better.
+    public var writtenOut: ParsedField<Int>
+    public var writtenIn: ParsedField<Int>
+    public var writtenTotal: ParsedField<Int>
+
     public init(
         id: UUID = UUID(),
         name: String? = nil,
         fallbackLabel: String,
         sourceRowIndex: Int? = nil,
         scores: [ParsedField<Int>],
-        rowConfidence: Double
+        rowConfidence: Double,
+        writtenOut: ParsedField<Int> = .empty,
+        writtenIn: ParsedField<Int> = .empty,
+        writtenTotal: ParsedField<Int> = .empty
     ) {
         self.id = id
         self.name = name
@@ -63,6 +75,9 @@ public struct DetectedPlayer: Codable, Hashable, Sendable, Identifiable {
         self.sourceRowIndex = sourceRowIndex
         self.scores = scores
         self.rowConfidence = rowConfidence
+        self.writtenOut = writtenOut
+        self.writtenIn = writtenIn
+        self.writtenTotal = writtenTotal
     }
 
     public var displayName: String { name ?? fallbackLabel }
@@ -113,6 +128,10 @@ public struct ParsedScorecard: Codable, Sendable {
     /// Which detected player the golfer said is them. `nil` until chosen when there is more than one.
     public var selectedPlayerID: UUID?
 
+    /// Holes whose score the card's own written subtotal determined, rather than OCR reading the cell.
+    /// Surfaced so the review screen can point them out — they are reliable, but derived.
+    public var checksumSolvedHoles: [Int]
+
     // Quality.
     public var warnings: [ParseWarning]
     public var overallConfidence: Double
@@ -137,6 +156,7 @@ public struct ParsedScorecard: Codable, Sendable {
         holes: [ParsedHole] = [],
         detectedPlayers: [DetectedPlayer] = [],
         selectedPlayerID: UUID? = nil,
+        checksumSolvedHoles: [Int] = [],
         warnings: [ParseWarning] = [],
         overallConfidence: Double = 0,
         quality: ParseQuality = .failed,
@@ -157,6 +177,7 @@ public struct ParsedScorecard: Codable, Sendable {
         self.holes = holes
         self.detectedPlayers = detectedPlayers
         self.selectedPlayerID = selectedPlayerID
+        self.checksumSolvedHoles = checksumSolvedHoles
         self.warnings = warnings
         self.overallConfidence = overallConfidence
         self.quality = quality

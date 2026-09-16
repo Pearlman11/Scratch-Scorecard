@@ -31,12 +31,28 @@ public struct ParsingConfidenceEvaluator: Sendable {
         public var warnings: [ParseWarning]
     }
 
+    /// How much the card's own arithmetic corroborates the scores that were read.
+    ///
+    /// This is a genuinely different kind of evidence from a glyph read, and much stronger. A nine whose
+    /// scores sum to the subtotal the golfer wrote is confirmed by a second, independent piece of their
+    /// handwriting — so treating it with the same ~0.5 confidence that OCR assigns to any handwritten
+    /// digit badly understates what is actually known.
+    public enum ChecksumSupport: Sendable, Equatable {
+        /// No written subtotals, so nothing corroborates the reads.
+        case unavailable
+        /// A nine's scores sum to its written subtotal, or a single unknown was solved from it.
+        case confirmed(halves: Int)
+        /// Scores were read but do not sum to the written subtotal. Something is wrong.
+        case contradicted
+    }
+
     public func evaluate(
         holes: [ParsedHole],
         holeCount: Int,
         players: [DetectedPlayer],
         courseConfidence: Double,
         courseResolved: Bool,
+        checksumSupport: ChecksumSupport = .unavailable,
         existingWarnings: [ParseWarning]
     ) -> Assessment {
         var warnings = existingWarnings
@@ -78,6 +94,21 @@ public struct ParsingConfidenceEvaluator: Sendable {
         }
 
         // Player data.
+        //
+        // Confirming the roster up front removes a whole class of grid errors: once the app and the golfer
+        // agree on how many rows are theirs and which one is which, every later question is about a cell
+        // rather than about which row it belongs to. Raised even when exactly one row was found, because a
+        // foursome whose other three rows went unread looks identical to a solo round from here.
+        if !players.isEmpty {
+            let names = players.map(\.displayName).joined(separator: ", ")
+            warnings.append(ParseWarning(
+                kind: .playerCountNeedsConfirmation,
+                severity: .info,
+                detail: players.count == 1
+                    ? "Found 1 scoring row: \(names). Tap to change if more golfers were on this card."
+                    : "Found \(players.count) scoring rows: \(names). Tap to pick yours or change the count."
+            ))
+        }
         if players.isEmpty {
             warnings.append(ParseWarning(
                 kind: .noPlayerRowsDetected,
@@ -141,15 +172,36 @@ public struct ParsingConfidenceEvaluator: Sendable {
 
         // Overall confidence blends identification, static completeness and score quality. Scores carry the
         // most weight because they are what the golfer actually came to capture.
-        let meanScoreConfidence = scored.isEmpty
+        //
+        // Score quality is measured over the cells that are *supposed* to hold a score — this golfer's
+        // holes — never over every text block on the card. Blank rows a foursome never filled in, and the
+        // printed par and yardage rows, say nothing about how well the handwriting was read.
+        let rawMeanScoreConfidence = scored.isEmpty
             ? 0
             : scored.map(\.confidence).reduce(0, +) / Double(scored.count)
+
+        // Raw OCR confidence on handwriting sits near 0.5 even when the read is perfect, because that is
+        // simply how well a recognizer trained on print reports on a hand-drawn digit. Taken at face value
+        // it caps a flawless scan at roughly half marks. Where the card's arithmetic confirms the scores,
+        // that is the better evidence and it governs instead.
+        let effectiveScoreConfidence: Double
+        switch checksumSupport {
+        case .confirmed(let halves):
+            let expectedHalves = holeCount > 9 ? 2 : 1
+            let share = Double(min(halves, expectedHalves)) / Double(expectedHalves)
+            effectiveScoreConfidence = rawMeanScoreConfidence + (0.97 - rawMeanScoreConfidence) * share
+        case .contradicted:
+            effectiveScoreConfidence = rawMeanScoreConfidence * 0.6
+        case .unavailable:
+            effectiveScoreConfidence = rawMeanScoreConfidence
+        }
+
         let staticCompleteness = (parCoverage * 0.5) + (handicapCoverage * 0.2) + (yardageCoverage * 0.3)
 
         let overall =
             courseConfidence * 0.25 +
             staticCompleteness * 0.25 +
-            (scoreCoverage * meanScoreConfidence) * 0.50
+            (scoreCoverage * effectiveScoreConfidence) * 0.50
 
         let quality: ParseQuality
         if !courseResolved && scoreCoverage < 0.25 {

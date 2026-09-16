@@ -57,7 +57,16 @@ public struct PlayerScoreExtractor: Sendable {
         // A player's row may be split across stacked sections (front nine above, back nine below). Rows are
         // keyed by the name written in the gutter when there is one, and otherwise by their position within
         // the section, which is how a card orders its blank score lines.
-        var byKey: [String: (name: String?, scores: [ParsedField<Int>], confidence: Double, rowIndex: Int?, order: Int)] = [:]
+        var byKey: [String: (
+            name: String?,
+            scores: [ParsedField<Int>],
+            confidence: Double,
+            rowIndex: Int?,
+            order: Int,
+            out: ParsedField<Int>,
+            inward: ParsedField<Int>,
+            total: ParsedField<Int>
+        )] = [:]
         var order = 0
 
         for section in table.sections {
@@ -81,7 +90,10 @@ public struct PlayerScoreExtractor: Sendable {
                     scores: [ParsedField<Int>](repeating: .empty, count: holeCount),
                     confidence: row.roleConfidence,
                     rowIndex: rowIndex,
-                    order: order
+                    order: order,
+                    out: ParsedField<Int>.empty,
+                    inward: ParsedField<Int>.empty,
+                    total: ParsedField<Int>.empty
                 )
                 if byKey[key] == nil { order += 1 }
                 if entry.name == nil { entry.name = name }
@@ -96,6 +108,20 @@ public struct PlayerScoreExtractor: Sendable {
                         columnIsInterpolated: section.column(forHole: hole)?.isInterpolated ?? false,
                         par: par
                     )
+                }
+
+                // The written OUT / IN / TOTAL cells. These are the card's own checksum: a nine with one
+                // unreadable score is fully determined by its subtotal, so they are worth reading even
+                // though they duplicate information already in the row.
+                for cell in TableCellReader.aggregateCells(in: row, section: section) {
+                    guard !cell.isEmpty else { continue }
+                    let field = readSubtotal(cell: cell, holeCount: holeCount)
+                    switch cell.aggregateKind {
+                    case .out: if !entry.out.hasValue { entry.out = field }
+                    case .inward: if !entry.inward.hasValue { entry.inward = field }
+                    case .total: if !entry.total.hasValue { entry.total = field }
+                    case .none: break
+                    }
                 }
                 byKey[key] = entry
             }
@@ -113,7 +139,10 @@ public struct PlayerScoreExtractor: Sendable {
                 fallbackLabel: "Player \(index + 1)",
                 sourceRowIndex: entry.rowIndex,
                 scores: entry.scores,
-                rowConfidence: entry.confidence
+                rowConfidence: entry.confidence,
+                writtenOut: entry.out,
+                writtenIn: entry.inward,
+                writtenTotal: entry.total
             )
         }
     }
@@ -149,6 +178,28 @@ public struct PlayerScoreExtractor: Sendable {
             return ParsedField(value: nil, confidence: confidence, provenance: .ocr, rawText: raw)
         }
         return ParsedField(value: reading.value, confidence: min(1, confidence), provenance: .ocr, rawText: raw)
+    }
+
+    /// Reads a written OUT / IN / TOTAL cell.
+    ///
+    /// Bounded by what a real round can produce — nine (or eighteen) holes at one stroke minimum, capped
+    /// generously above any plausible score. A reading outside that is discarded rather than kept, because
+    /// a wrong subtotal is worse than none: the checksum solver trusts it enough to write a score from it.
+    func readSubtotal(cell: TableCell, holeCount: Int) -> ParsedField<Int> {
+        guard !cell.isEmpty else { return .empty }
+        let holesInTotal = holeCount > 9 ? 18 : 9
+        let range = holesInTotal...(holesInTotal * ScoreMath.plausibleScoreRange.upperBound)
+        guard let reading = NumericOCR.bestInteger(from: cell.text, plausibleRange: range),
+              reading.penalty < 1.0 else {
+            return ParsedField(value: nil, confidence: 0, provenance: .ocr, rawText: cell.text)
+        }
+        let confidence = cell.ocrConfidence * (1 - reading.penalty * 0.6)
+        return ParsedField(
+            value: reading.value,
+            confidence: min(1, confidence),
+            provenance: .ocr,
+            rawText: cell.text
+        )
     }
 
     /// Whether a stroke count is possible on a hole of this par.
