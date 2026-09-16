@@ -83,6 +83,28 @@ jobs:
       - name: Generate project
         run: xcodegen generate
 
+      # Diagnostic: inspect exactly what XcodeGen wrote for Info.plist handling, before spending time on a
+      # full build. The source Info.plist has always had the required keys (checked separately); if this
+      # step shows GENERATE_INFOPLIST_FILE resolving to YES, or INFOPLIST_FILE pointing anywhere but our
+      # file, that is the bug — the `info:` target key and the `settings.base.INFOPLIST_FILE` override may
+      # be interacting in a way that does not match what the XcodeGen docs describe from memory.
+      - name: Diagnose Info.plist wiring in the generated project
+        run: |
+          echo "::group::project.pbxproj INFOPLIST settings (as written by XcodeGen)"
+          grep -A1 -E "INFOPLIST_FILE|GENERATE_INFOPLIST_FILE" GolfTracker.xcodeproj/project.pbxproj | head -40
+          echo "::endgroup::"
+          echo "::group::Resolved build settings (as xcodebuild sees them)"
+          xcodebuild -showBuildSettings \
+            -project GolfTracker.xcodeproj \
+            -scheme GolfTracker \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug 2>&1 | grep -iE "INFOPLIST|GENERATE_INFOPLIST" || echo "(no matching settings found)"
+          echo "::endgroup::"
+          echo "::group::Source Info.plist camera key (sanity check)"
+          /usr/libexec/PlistBuddy -c "Print :NSCameraUsageDescription" App/GolfTracker/Resources/Info.plist \
+            || echo "MISSING FROM SOURCE FILE"
+          echo "::endgroup::"
+
       # `generic/platform=iOS Simulator` compiles for the simulator without booting one, which is both
       # faster and far less flaky than naming a specific device that may not exist on the runner image.
       # Code signing is off because this job only needs to prove the code compiles and links.
