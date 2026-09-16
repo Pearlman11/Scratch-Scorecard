@@ -201,7 +201,10 @@ card or typed by the golfer are promoted — a value that came from another temp
 an error cannot be laundered into a second source.
 
 Coordinates are resolved at runtime with `MKLocalSearch`, checked against Georgia's bounding box, and
-cached. None are hand-typed.
+cached. None are hand-typed. The box uses Georgia's actual extents and is deliberately unpadded — an
+earlier padded version reached past the Florida line and admitted Jacksonville. Georgia is not a rectangle,
+so the box still contains Tallahassee and Greenville; it is a coarse backstop, and the real safeguard is
+that `CourseLocationResolver` also requires a search result's name to resemble the course it looked for.
 
 Multi-layout facilities are modelled one record per layout (Stone Mountain → Stonemont, Lakemont; Chateau
 Elan → Chateau, Woodlands), because a golfer plays a layout and a scorecard identifies a layout.

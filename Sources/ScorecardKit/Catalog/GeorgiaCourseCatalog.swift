@@ -21,10 +21,22 @@ import Foundation
 /// against Georgia's bounding box and cached, rather than hand-typed from memory.
 public enum GeorgiaCourseCatalog {
 
-    /// Bounding box used to reject a geocode that lands outside Georgia.
-    /// Georgia spans roughly 30.3°N–35.1°N and 85.7°W–80.8°W; the box is padded slightly.
-    public static let georgiaLatitudeRange: ClosedRange<Double> = 30.20...35.10
-    public static let georgiaLongitudeRange: ClosedRange<Double> = -85.80...(-80.70)
+    /// Bounding box used to reject a geocode that clearly did not land in Georgia.
+    ///
+    /// These are Georgia's actual extents, deliberately *unpadded*. An earlier version padded the box by a
+    /// few tenths of a degree, which pushed its southern edge past the Florida line and quietly admitted
+    /// Jacksonville — a city with plenty of golf courses that are emphatically not in this catalog.
+    ///
+    /// ## What this check can and cannot do
+    ///
+    /// Georgia is not a rectangle, so no bounding box can be exact. This one still contains Tallahassee
+    /// and Greenville, South Carolina, which sit in corners the box cannot cut off. It is therefore a
+    /// coarse backstop against a geocode landing in another region entirely, **not** the primary
+    /// safeguard. That is `CourseLocationResolver`, which additionally requires the search result's own
+    /// name to resemble the course it was looking for — the check that actually distinguishes "the right
+    /// course" from "somewhere nearby with the right shape".
+    public static let georgiaLatitudeRange: ClosedRange<Double> = 30.355...35.001
+    public static let georgiaLongitudeRange: ClosedRange<Double> = -85.605...(-80.751)
 
     public static func isWithinGeorgia(latitude: Double, longitude: Double) -> Bool {
         georgiaLatitudeRange.contains(latitude) && georgiaLongitudeRange.contains(longitude)

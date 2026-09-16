@@ -83,14 +83,60 @@ final class CatalogIntegrityTests: XCTestCase {
         XCTAssertEqual(steelCanyon?.isHoleCountKnown, true)
     }
 
-    func testGeorgiaBoundsRejectCoordinatesOutsideTheState() {
-        // Sandy Springs, roughly.
-        XCTAssertTrue(GeorgiaCourseCatalog.isWithinGeorgia(latitude: 33.95, longitude: -84.37))
-        // Nashville, Charlotte, Jacksonville and Birmingham are all outside.
-        XCTAssertFalse(GeorgiaCourseCatalog.isWithinGeorgia(latitude: 36.16, longitude: -86.78))
-        XCTAssertFalse(GeorgiaCourseCatalog.isWithinGeorgia(latitude: 35.23, longitude: -80.84))
-        XCTAssertFalse(GeorgiaCourseCatalog.isWithinGeorgia(latitude: 30.33, longitude: -81.65))
-        XCTAssertFalse(GeorgiaCourseCatalog.isWithinGeorgia(latitude: 33.52, longitude: -86.81))
+    func testGeorgiaBoundsAcceptCoursesAcrossTheWholeState() {
+        // Corners and edges of the real catalog's geography, so tightening the box can never start
+        // rejecting a course the app actually ships.
+        let inGeorgia: [(String, Double, Double)] = [
+            ("Sandy Springs", 33.95, -84.37),
+            ("Atlanta", 33.75, -84.39),
+            ("Athens", 33.95, -83.38),
+            ("Braselton", 34.11, -83.76),
+            ("Valdosta, near the Florida line", 30.83, -83.28),
+            ("St Marys, the south-east corner", 30.73, -81.55),
+            ("Tybee Island, the eastern edge", 32.00, -80.85),
+            ("Columbus, the western edge", 32.46, -84.99)
+        ]
+        for (name, latitude, longitude) in inGeorgia {
+            XCTAssertTrue(
+                GeorgiaCourseCatalog.isWithinGeorgia(latitude: latitude, longitude: longitude),
+                "\(name) should be inside Georgia"
+            )
+        }
+    }
+
+    func testGeorgiaBoundsRejectNearbyCitiesOutsideTheState() {
+        // Jacksonville is the case that matters: it sits just south of the Florida line, and an earlier
+        // padded box admitted it.
+        let outsideGeorgia: [(String, Double, Double)] = [
+            ("Jacksonville FL", 30.33, -81.65),
+            ("Nashville TN", 36.16, -86.78),
+            ("Charlotte NC", 35.23, -80.84),
+            ("Birmingham AL", 33.52, -86.81),
+            ("Chattanooga TN", 35.05, -85.31)
+        ]
+        for (name, latitude, longitude) in outsideGeorgia {
+            XCTAssertFalse(
+                GeorgiaCourseCatalog.isWithinGeorgia(latitude: latitude, longitude: longitude),
+                "\(name) should be outside Georgia"
+            )
+        }
+    }
+
+    func testTheBoundingBoxIsCoarseAndIsNotTheOnlySafeguard() {
+        // Georgia is not a rectangle, so its corners contain neighbouring cities and no box can exclude
+        // them. Asserting this pins down a known limitation rather than leaving it to be rediscovered:
+        // the real protection is the name check in CourseLocationResolver, which requires a search result
+        // to resemble the course it was looking for.
+        XCTAssertTrue(
+            GeorgiaCourseCatalog.isWithinGeorgia(latitude: 30.44, longitude: -84.28),
+            "Tallahassee sits in the box's south-west corner — the box alone cannot exclude it"
+        )
+        XCTAssertTrue(
+            GeorgiaCourseCatalog.isWithinGeorgia(latitude: 34.85, longitude: -82.39),
+            "Greenville SC sits in the box's north-east corner"
+        )
+        // The name check is what separates these from a real match.
+        XCTAssertLessThan(FuzzyText.similarity("Tallahassee Municipal Golf Course", "Steel Canyon Golf Club"), 0.5)
     }
 
     func testEveryCourseHasMatchableAliases() {
