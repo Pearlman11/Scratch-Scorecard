@@ -115,8 +115,17 @@ actor ScorecardImageStore {
 
     // MARK: - Private
 
+    /// Writes atomically, with file protection that survives a background scan.
+    ///
+    /// `.completeFileProtectionUntilFirstUserAuthentication` keeps the image encrypted until the phone is
+    /// unlocked once after boot, then leaves it readable. Full `.completeFileProtection` would be stronger
+    /// but unreadable while the device is locked, which would break a round being saved as the screen
+    /// times out mid-review.
     private func write(_ data: Data, named filename: String) throws {
-        try data.write(to: url(for: filename), options: [.atomic, .completeFileUntilFirstUserAuthentication])
+        try data.write(
+            to: url(for: filename),
+            options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
+        )
     }
 
     /// Scorecard photos are reproducible from the golfer's own Photos library in most cases and can be
