@@ -77,17 +77,17 @@ struct RoundsView: View {
             summarySection
             switch grouping {
             case .date:
-                ForEach(groupedByMonth, id: \.key) { group in
-                    Section(group.key) {
-                        ForEach(group.value) { round in
+                ForEach(groupedByMonth) { group in
+                    Section(group.title) {
+                        ForEach(group.rounds) { round in
                             roundLink(round)
                         }
                     }
                 }
             case .course:
-                ForEach(groupedByCourse, id: \.key) { group in
-                    Section(group.key) {
-                        ForEach(group.value) { round in
+                ForEach(groupedByCourse) { group in
+                    Section(group.title) {
+                        ForEach(group.rounds) { round in
                             roundLink(round, showsCourseName: false)
                         }
                     }
@@ -146,21 +146,29 @@ struct RoundsView: View {
 
     // MARK: - Grouping
 
-    private var groupedByMonth: [(key: String, value: [Round])] {
+    /// A section of the rounds list. A named type rather than a tuple because `ForEach` identifies its
+    /// data by key path, and Swift key paths cannot address tuple elements.
+    private struct RoundGroup: Identifiable {
+        let id: String
+        let title: String
+        let rounds: [Round]
+    }
+
+    private var groupedByMonth: [RoundGroup] {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMMM yyyy"
         let grouped = Dictionary(grouping: filteredRounds) { formatter.string(from: $0.datePlayed) }
-        // Dictionary order is undefined, so groups are re-ordered by the newest round each contains.
+        // Dictionary iteration order is undefined, so groups are re-ordered by the newest round in each.
         return grouped
-            .map { (key: $0.key, value: $0.value.sorted { $0.datePlayed > $1.datePlayed }) }
-            .sorted { ($0.value.first?.datePlayed ?? .distantPast) > ($1.value.first?.datePlayed ?? .distantPast) }
+            .map { RoundGroup(id: $0.key, title: $0.key, rounds: $0.value.sorted { $0.datePlayed > $1.datePlayed }) }
+            .sorted { ($0.rounds.first?.datePlayed ?? .distantPast) > ($1.rounds.first?.datePlayed ?? .distantPast) }
     }
 
-    private var groupedByCourse: [(key: String, value: [Round])] {
+    private var groupedByCourse: [RoundGroup] {
         let grouped = Dictionary(grouping: filteredRounds) { $0.course?.displayName ?? "Unknown course" }
         return grouped
-            .map { (key: $0.key, value: $0.value.sorted { $0.datePlayed > $1.datePlayed }) }
-            .sorted { $0.key < $1.key }
+            .map { RoundGroup(id: $0.key, title: $0.key, rounds: $0.value.sorted { $0.datePlayed > $1.datePlayed }) }
+            .sorted { $0.title < $1.title }
     }
 
     private func delete(_ round: Round) {

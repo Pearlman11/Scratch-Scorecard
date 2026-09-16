@@ -82,9 +82,13 @@ struct ScanView: View {
     }
 
     /// Wrapper so the scan result can drive `navigationDestination(item:)`, which needs Hashable identity.
+    ///
+    /// The identity is the parse's own id, not a fresh UUID. The binding's getter runs on every body
+    /// evaluation, so minting a new id there would change the destination's identity constantly and
+    /// bounce the golfer out of the review screen.
     private struct ScanRoute: Hashable, Identifiable {
-        let id = UUID()
         let result: ScorecardScanResult
+        var id: UUID { result.scorecard.id }
 
         static func == (lhs: ScanRoute, rhs: ScanRoute) -> Bool { lhs.id == rhs.id }
         func hash(into hasher: inout Hasher) { hasher.combine(id) }

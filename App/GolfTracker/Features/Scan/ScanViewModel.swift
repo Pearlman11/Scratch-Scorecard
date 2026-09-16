@@ -45,11 +45,21 @@ final class ScanViewModel {
 
     func attach(modelContext: ModelContext) {
         self.modelContext = modelContext
+        refreshTemplates()
     }
 
-    var templates: [CourseTemplate] {
-        guard let modelContext else { return GeorgiaCourseCatalog.templates }
-        return (try? CourseRepository(context: modelContext).templatesForMatching()) ?? GeorgiaCourseCatalog.templates
+    /// Seed catalog plus any learned templates.
+    ///
+    /// Cached rather than fetched on demand: this is read from `body` when building the review
+    /// destination, and a database round-trip on every view update is not something to pay for a list that
+    /// only changes when a template is learned.
+    private(set) var templates: [CourseTemplate] = GeorgiaCourseCatalog.templates
+
+    func refreshTemplates() {
+        guard let modelContext else { return }
+        if let loaded = try? CourseRepository(context: modelContext).templatesForMatching() {
+            templates = loaded
+        }
     }
 
     // MARK: - Capture
@@ -99,6 +109,8 @@ final class ScanViewModel {
 
     private func parse(image: UIImage, alreadyRectified: Bool) async {
         phase = .preparing
+        // Pick up any template learned since the tab was last opened.
+        refreshTemplates()
         let availableTemplates = templates
         do {
             phase = .recognizing
