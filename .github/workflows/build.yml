@@ -1,0 +1,90 @@
+name: Build
+
+# Two jobs, deliberately ordered cheapest-first.
+#
+# `kit` builds and tests ScorecardKit with plain SwiftPM: no Xcode project, no simulator, ~2 minutes.
+# That is where the great majority of the code and essentially all of the difficult logic lives, so while
+# the parser is still being made to compile, only the cheap job runs.
+#
+# `app` only runs once `kit` is green, because the app target imports ScorecardKit and cannot build until
+# the package does. On a private repository GitHub bills macOS runners at 10x, so not burning a full Xcode
+# build on every parser fix is worth the extra job.
+
+on:
+  push:
+    branches: ["**"]
+    paths-ignore: ["**/*.md"]
+  workflow_dispatch:
+
+concurrency:
+  # A newer push makes an in-flight run obsolete; cancelling it saves runner minutes.
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kit:
+    name: ScorecardKit (build + test)
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain versions
+        run: |
+          xcodebuild -version
+          swift --version
+
+      # Building before testing separates "does it compile" from "do the tests pass", which are very
+      # different failures and worth seeing apart.
+      - name: Build package
+        run: swift build 2>&1 | tee /tmp/kit-build.log
+
+      - name: Run tests
+        run: swift test 2>&1 | tee /tmp/kit-test.log
+
+      - name: Failure summary
+        if: failure()
+        run: |
+          echo "::group::Compiler errors"
+          grep -E "error:" /tmp/kit-*.log | sort -u | head -100 || true
+          echo "::endgroup::"
+          echo "::group::Test failures"
+          grep -E "XCTAssert|failed \(" /tmp/kit-test.log | head -60 || true
+          echo "::endgroup::"
+
+  app:
+    name: iOS app (simulator build)
+    runs-on: macos-15
+    needs: kit
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate project
+        run: xcodegen generate
+
+      # `generic/platform=iOS Simulator` compiles for the simulator without booting one, which is both
+      # faster and far less flaky than naming a specific device that may not exist on the runner image.
+      # Code signing is off because this job only needs to prove the code compiles and links.
+      - name: Build app
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project GolfTracker.xcodeproj \
+            -scheme GolfTracker \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            ONLY_ACTIVE_ARCH=NO \
+            2>&1 | tee /tmp/app-build.log
+
+      - name: Failure summary
+        if: failure()
+        run: |
+          echo "::group::Compiler errors"
+          grep -E "error:" /tmp/app-build.log | sort -u | head -100 || true
+          echo "::endgroup::"
