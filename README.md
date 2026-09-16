@@ -49,15 +49,19 @@ Sources/ScorecardKit/
   Layout/         RowClusterer, ColumnGridBuilder, RowLabelClassifier, ScorecardLayoutDetector
   Matching/       NumericOCR, FuzzyText, SequenceSimilarity, CourseTemplateMatcher
   Extraction/     StaticCourseDataExtractor, PlayerScoreExtractor, ParsingConfidenceEvaluator
-  Pipeline/       ScorecardParsing, DefaultScorecardParser, RemoteScorecardVisionService
+  Pipeline/       ScorecardParsing, DefaultScorecardParser, RemoteScorecardVisionService,
+                  RemoteScoreAudit, RemoteParseIntegration
   Catalog/        GeorgiaCourseCatalog, SteelCanyonTemplate, LearnedTemplateBuilder
   Debug/          ParserDebugReport, ScorecardFixtureBuilder
 
 App/GolfTracker/
   Imaging/        ScorecardImageProcessor (Core Image)
   VisionOCR/      VisionTextRecognizer, VisionScorecardParser
+  Remote/         RemoteParserSettings, ProxiedScorecardVisionService
   Persistence/    SwiftData models, ScorecardImageStore, Course/Round repositories
-  Features/       Scan, Review, Map, Rounds, Debug
+  Features/       Scan, Review, Settings, Map, Rounds, Debug
+
+Proxy/cloudflare-worker/       Optional server holding the API key. Not part of the app.
 ```
 
 ---
@@ -226,17 +230,74 @@ there is no ambiguity and the tee is taken at high confidence.
 
 ## Privacy
 
-All image processing and recognition is on-device. There is no account, no network call, and no analytics.
+Scanning, recognition, course matching, the checksum solver, storage and the map are all on-device. There
+is no account, no analytics, and by default no network call at all.
 
-`RemoteScorecardVisionService` is a protocol with a **disabled** default implementation
-(`LocalOnlyRemoteVisionService`), sketching how a multimodal model could later give a second opinion on
-hard handwriting. It is not required and not wired up. Any real implementation must call a first-party
-server that holds the credential — an API key shipped in an iOS binary is a published key, since the app
-bundle is readable by anyone who installs it. A remote parse would also send the golfer's photograph off
-the device, so it must be opt-in per scan.
+The one exception is the optional AI read of the handwriting, described below. It is off until the golfer
+configures a server of their own, it asks consent in words before the first photo leaves the phone, and it
+is a button on the review screen rather than something that happens during a scan.
 
 Camera and photo-library usage descriptions are in `Info.plist`. Permission is requested at the moment the
 golfer taps to scan, never on launch.
+
+---
+
+## Reading the handwriting with AI
+
+On a real scorecard, Vision reads every printed row — par, stroke index, all three tees' yardages — and
+detects *no pencil at all*. Not a bad reading: no detection. The grid, the template match and the checksum
+solver all work perfectly and then have nothing to work with. A recognizer trained on print has a blind
+spot that no amount of threshold tuning closes, and a multimodal model does not share it.
+
+So the app can ask one. This is a hybrid, not a replacement:
+
+| | Source |
+|---|---|
+| Course, tee, par, stroke index, yardages | Verified `CourseTemplate`, local OCR. Unchanged. |
+| Handwritten scores | Local OCR, then optionally a vision model |
+| Whether that reading is believed | The card's own arithmetic |
+
+### The model's answer is checked, not trusted
+
+The real risk is not that a model misreads a 4 as a 9. It is that it returns a complete, confident,
+plausible row with one cell *filled in* rather than read — because that is what a language model does with
+an illegible cell, and its self-reported confidence comes from the same process as the guess.
+
+`RemoteScoreAudit` handles this with arithmetic instead. The model transcribes the written OUT / IN / TOTAL
+cells **separately** from the per-hole cells, and is explicitly told not to compute them. The app then adds
+up the hole scores itself and compares. A golfer writing nine strokes and then writing their sum is two
+separate acts of handwriting in two places on the card; a single invented digit breaks the agreement
+between them. Where on-device OCR also read a subtotal, that is a third fully independent check.
+
+The verdict sets a ceiling on how far the reading may be believed — it can only ever cap a confidence,
+never inflate one the model itself was unsure of:
+
+| Verdict | Ceiling | Consequence |
+|---|---|---|
+| Corroborated — the row adds up | 0.95 | Above the review threshold; the card is ready to save |
+| Unverifiable — nothing to check against | 0.80 | Just below the review threshold; every cell is shown for confirmation |
+| Contradicted — it does not add up | 0.45 | Below the review *and* the checksum-overwrite threshold, so the arithmetic may correct it |
+
+`RemoteParseIntegrator` runs audit → adopt-or-merge → `ScoreChecksumSolver` → re-evaluate, in that order.
+The arithmetic gets the last word, including the power to overwrite a contradicted model reading and to
+solve a cell the model honestly reported as unreadable.
+
+### No API key in the app
+
+An iOS app bundle is a zip file anyone who installs the app can open, and `strings` on the binary is enough
+to lift a key out of it. A key shipped to a thousand phones is published a thousand times, billed to
+whoever owns it until they notice. Obfuscating it or fetching it at launch are the same mistake with extra
+steps.
+
+The phone therefore holds a **URL**, which is public information by nature, and a server holds the
+credential. `Proxy/cloudflare-worker` is a deployable implementation — about two hundred lines, free tier,
+`wrangler secret put ANTHROPIC_API_KEY`, with an optional client token so the endpoint is not open to
+anyone who learns its address. See its README. The app rejects any address that is not `https://`.
+
+The response is treated as untrusted input throughout: out-of-range scores are dropped rather than clamped
+(a "score" of 47 is a cell that was not read, not a 15 the model was hazy about), rows are capped, hole
+numbers are range-checked and de-duplicated, and anything the model says about the *course* is discarded
+outright.
 
 ---
 
@@ -263,6 +324,8 @@ ScoreMathAndEditingTests          Totals, partial rounds, edit recalculation, pr
 NineHoleAndErrorStateTests        Nine holes end to end, every error state, debug report
 CatalogIntegrityTests             Georgia-only, no fabricated data, no hand-typed coordinates
 LearnedTemplateAndRemoteTests     Template promotion, remote merge boundaries
+ScoreChecksumSolverTests          Solving unread cells from written subtotals, and refusing to
+RemoteScoreAuditTests             Catching a fabricated score by arithmetic; the AI integration path
 NumericOCRTests                   Glyph confusion, fuzzy names, coordinate conversion
 ```
 
@@ -283,9 +346,14 @@ Fixtures are synthetic OCR observations with realistic scorecard geometry, built
   confusion, skew, dropped cells and layout variation; they do not model motion blur, a folded card, a
   thumb over hole 12, or the specific typeface on the real card. Expect to tune `RowClusterer` tolerances
   and `PlayerScoreExtractor` thresholds against the actual scan — the debug inspector exists for that.
-- **Handwriting is the weak point**, as designed for. Printed metadata is recovered reliably; handwritten
-  scores route to review whenever they are not clean. The targeted cell re-read helps and is the main lever
-  left to tune before reaching for a remote model.
+- **On-device handwriting recognition is the weak point**, and on at least one real card it recovers
+  nothing at all. Printed metadata is reliable; pencil is not. The targeted cell re-read and the checksum
+  solver both help, but the honest answer for a card like that one is the optional AI read — which needs a
+  server the golfer deploys themselves, so the out-of-the-box experience on such a card is still manual
+  entry into a correctly pre-filled grid.
+- **The AI read has not been run against the real card yet.** Its integration path, audit and refusal
+  behaviour are covered by tests built from that card's real numbers, but the prompt itself has only been
+  reasoned about, not measured. Expect to iterate on it.
 - **The Georgia bounding box is coarse.** It uses the state's real extents, but Georgia is not a rectangle,
   so Tallahassee and Greenville still fall inside it. The name check in `CourseLocationResolver` is what
   actually distinguishes a correct geocode from a nearby wrong one.
