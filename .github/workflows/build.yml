@@ -101,6 +101,36 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             2>&1 | tee /tmp/app-build.log
 
+      # A build succeeding proves the code compiles; it says nothing about whether the *shipped bundle*
+      # is correct. This app crashes on launch if NSCameraUsageDescription is missing from the built
+      # Info.plist — a failure mode that only shows up on a device, is invisible to `xcodebuild build`,
+      # and was in fact hit locally once already after a project regeneration left a build setting stale.
+      # Checking the actual product's Info.plist, not the source file, is what catches that class of bug:
+      # a source file can be perfectly correct while GENERATE_INFOPLIST_FILE=YES or a wrong INFOPLIST_FILE
+      # path silently produces a bundle without it.
+      - name: Verify required Info.plist keys reached the built bundle
+        run: |
+          APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "GolfTracker.app" -path "*Debug-iphonesimulator*" -print -quit)
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::Could not locate the built GolfTracker.app to inspect its Info.plist"
+            exit 1
+          fi
+          echo "Inspecting $APP_PATH/Info.plist"
+          MISSING=0
+          for KEY in NSCameraUsageDescription NSPhotoLibraryUsageDescription NSPhotoLibraryAddUsageDescription; do
+            VALUE=$(/usr/libexec/PlistBuddy -c "Print :$KEY" "$APP_PATH/Info.plist" 2>&1) || VALUE=""
+            if [ -z "$VALUE" ]; then
+              echo "::error::$KEY is missing from the built Info.plist"
+              MISSING=1
+            else
+              echo "$KEY = $VALUE"
+            fi
+          done
+          if [ "$MISSING" -eq 1 ]; then
+            echo "::error::One or more required usage-description keys did not reach the built app bundle."
+            exit 1
+          fi
+
       - name: Failure summary
         if: failure()
         run: |
