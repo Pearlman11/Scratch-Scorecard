@@ -48,6 +48,16 @@ jobs:
           set -o pipefail
           swift test 2>&1 | tee /tmp/kit-test.log
 
+      # Always reported, pass or fail. A green job once hid three failing tests here, because the pipe into
+      # `tee` returned tee's status; printing the totals unconditionally means the outcome can be read
+      # off the job summary instead of trusted.
+      - name: Test totals
+        if: always()
+        run: |
+          echo "### Test totals" >> "$GITHUB_STEP_SUMMARY"
+          grep -hE "Test Suite 'All tests'|Executed [0-9]+ tests" /tmp/kit-test.log 2>/dev/null \
+            | tail -2 | tee -a "$GITHUB_STEP_SUMMARY" || echo "no test output captured"
+
       - name: Failure summary
         if: failure()
         run: |
@@ -57,9 +67,6 @@ jobs:
           echo "::group::Test failures"
           grep -hE "XCTAssert|XCTFail|XCTUnwrap" /tmp/kit-test.log 2>/dev/null \
             | sed 's|/Users/runner/work/Scratch-Scorecard/Scratch-Scorecard/||' | sort -u | head -80 || true
-          echo "::endgroup::"
-          echo "::group::Suite totals"
-          grep -hE "Executed [0-9]+ tests" /tmp/kit-test.log 2>/dev/null | tail -3 || true
           echo "::endgroup::"
 
   app:

@@ -273,9 +273,10 @@ Fixtures are synthetic OCR observations with realistic scorecard geometry, built
 
 ## Known limitations
 
-- **Not yet run on a device or in a simulator.** CI proves it compiles and that the parser's tests pass;
-  nothing here has been exercised against a real camera, a real photo library, or SwiftData on disk.
-  Runtime behaviour — SwiftData migrations, permission prompts, the document scanner — is unverified.
+- **Not yet run on a device or in a simulator.** CI proves both targets compile and that all 101 parser
+  tests pass; nothing here has been exercised against a real camera, a real photo library, or SwiftData on
+  disk. Runtime behaviour — the store opening, permission prompts, the document scanner — is unverified,
+  and that is the next thing to find out.
 - **Steel Canyon has not been tested against the real photograph.** Synthetic fixtures model glyph
   confusion, skew, dropped cells and layout variation; they do not model motion blur, a folded card, a
   thumb over hole 12, or the specific typeface on the real card. Expect to tune `RowClusterer` tolerances
@@ -307,6 +308,8 @@ Compiling it on a macOS runner then caught four more that no amount of static re
 | CI reported green with 3 of 98 tests failing | `swift test \| tee` returns `tee`'s exit status |
 | Steel Canyon has twelve par 3s, not eleven | A miscount in a comment and an assertion, not in the data |
 | `RemoteParseMerger` would overwrite every score | Handwritten confidences all sit near 0.5, so any remote reading beat them |
+| The Georgia box admitted Jacksonville | Padding a rectangle around Georgia crosses the Florida line |
+| A `Data.WritingOptions` case that does not exist | Plausible-looking name, wrong by one word |
 
 The lesson worth keeping: a validated algorithm is not a working program, and a green CI badge is not a
 passing test suite. Both had to be checked separately.
