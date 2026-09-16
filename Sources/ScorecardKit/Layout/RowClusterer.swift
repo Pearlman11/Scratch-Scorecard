@@ -48,11 +48,16 @@ public struct RowClusterer: Sendable {
         public var medianTextHeight: Double
         /// Observations after deskew, in the same order as the input.
         public var deskewedObservations: [TextObservation]
+        /// The point the deskew rotation was applied about. Needed to map a rect derived from the
+        /// deskewed grid back onto the original photograph, which is what a targeted re-read of a single
+        /// cell has to do before it can crop the image.
+        public var skewPivotX: Double
+        public var skewPivotY: Double
     }
 
     public func clusterRows(from observations: [TextObservation]) -> Result {
         guard !observations.isEmpty else {
-            return Result(rows: [], skewRadians: 0, medianTextHeight: 0, deskewedObservations: [])
+            return Result(rows: [], skewRadians: 0, medianTextHeight: 0, deskewedObservations: [], skewPivotX: 0.5, skewPivotY: 0.5)
         }
 
         let skew = estimateSkew(observations)
@@ -70,7 +75,9 @@ public struct RowClusterer: Sendable {
             rows: rows,
             skewRadians: abs(skew) >= configuration.minSkewRadians ? skew : 0,
             medianTextHeight: medianHeight,
-            deskewedObservations: deskewed
+            deskewedObservations: deskewed,
+            skewPivotX: pivot.x,
+            skewPivotY: pivot.y
         )
     }
 

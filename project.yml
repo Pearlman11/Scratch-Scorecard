@@ -1,0 +1,45 @@
+# XcodeGen spec. Run `Scripts/generate-project.sh` to produce GolfTracker.xcodeproj.
+#
+# The project file is generated rather than committed so the file list cannot drift from what is on disk,
+# and so adding a file never produces a merge conflict in a 3,000-line pbxproj.
+name: GolfTracker
+options:
+  bundleIdPrefix: com.golftracker
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    SWIFT_STRICT_CONCURRENCY: minimal
+
+packages:
+  ScorecardKit:
+    path: .
+
+targets:
+  GolfTracker:
+    type: application
+    platform: iOS
+    sources:
+      - path: App/GolfTracker
+        excludes:
+          - "Resources/Info.plist"
+    dependencies:
+      - package: ScorecardKit
+        product: ScorecardKit
+    info:
+      path: App/GolfTracker/Resources/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.golftracker.app
+        PRODUCT_NAME: GolfTracker
+        INFOPLIST_FILE: App/GolfTracker/Resources/Info.plist
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_EMIT_LOC_STRINGS: YES

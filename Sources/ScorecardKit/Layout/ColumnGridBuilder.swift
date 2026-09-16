@@ -83,7 +83,7 @@ public struct ColumnGridBuilder: Sendable {
     ///
     /// Both `1` and `10` are tried as starting values so a card that stacks the back nine in its own table
     /// is recognized as such rather than being forced to start at hole 1.
-    public func findHeaderRows(in rows: [DetectedRow]) -> [(rowIndex: Int, hits: [HeaderHit])] {
+    func findHeaderRows(in rows: [DetectedRow]) -> [(rowIndex: Int, hits: [HeaderHit])] {
         var candidates: [(rowIndex: Int, hits: [HeaderHit])] = []
         for row in rows {
             var best: [HeaderHit] = []
@@ -128,7 +128,7 @@ public struct ColumnGridBuilder: Sendable {
         }
         centers = filled.sorted { $0.x < $1.x }
 
-        let pitch = meanPitch(of: centers.map(\.x)) ?? 0.05
+        let pitch = meanPitch(of: centers.map { $0.x }) ?? 0.05
         var columns: [HoleColumn] = []
         for (index, entry) in centers.enumerated() {
             let leftBoundary: Double

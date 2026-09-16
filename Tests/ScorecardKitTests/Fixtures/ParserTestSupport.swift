@@ -91,8 +91,4 @@ extension ParsedScorecard {
     var scoresByHole: [Int: Int?] {
         Dictionary(uniqueKeysWithValues: holes.map { ($0.holeNumber, $0.playerScore.value) })
     }
-
-    func hole(_ number: Int) -> ParsedHole? {
-        holes.first { $0.holeNumber == number }
-    }
 }

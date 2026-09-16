@@ -30,12 +30,12 @@ public struct ScorecardLayoutDetector: ScorecardLayoutDetecting {
         let clustered = clusterer.clusterRows(from: observations)
         var rows = clustered.rows
         guard !rows.isEmpty else {
-            return DetectedTable(rows: [], sections: [], skewRadians: clustered.skewRadians, medianTextHeight: clustered.medianTextHeight)
+            return DetectedTable(rows: [], sections: [], skewRadians: clustered.skewRadians, medianTextHeight: clustered.medianTextHeight, skewPivotX: clustered.skewPivotX, skewPivotY: clustered.skewPivotY)
         }
 
         var sections = buildSections(rows: rows)
         guard !sections.isEmpty else {
-            return DetectedTable(rows: rows, sections: [], skewRadians: clustered.skewRadians, medianTextHeight: clustered.medianTextHeight)
+            return DetectedTable(rows: rows, sections: [], skewRadians: clustered.skewRadians, medianTextHeight: clustered.medianTextHeight, skewPivotX: clustered.skewPivotX, skewPivotY: clustered.skewPivotY)
         }
 
         // Refine each section's columns against the cells beneath its header, then classify its rows.
@@ -82,7 +82,9 @@ public struct ScorecardLayoutDetector: ScorecardLayoutDetecting {
             rows: rows,
             sections: sections,
             skewRadians: clustered.skewRadians,
-            medianTextHeight: clustered.medianTextHeight
+            medianTextHeight: clustered.medianTextHeight,
+            skewPivotX: clustered.skewPivotX,
+            skewPivotY: clustered.skewPivotY
         )
     }
 

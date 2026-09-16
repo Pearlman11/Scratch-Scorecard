@@ -170,6 +170,14 @@ public struct ParsedScorecard: Codable, Sendable {
         return detectedPlayers.first { $0.id == selectedPlayerID }
     }
 
+    /// The hole with this number, or `nil` if the card does not cover it.
+    ///
+    /// Holes are addressed by *number*, never by array index: a card whose back nine was cropped off still
+    /// has holes numbered 10 upward, and indexing into the array would silently return hole 1's data.
+    public func hole(_ number: Int) -> ParsedHole? {
+        holes.first { $0.holeNumber == number }
+    }
+
     public var pars: [Int?] { holes.map(\.par.value) }
     public var scores: [Int?] { holes.map(\.playerScore.value) }
 

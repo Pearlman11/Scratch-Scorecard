@@ -153,17 +153,34 @@ public struct DetectedTable: Sendable {
     /// Estimated page skew in radians, already applied to every rect in `rows`.
     public var skewRadians: Double
     public var medianTextHeight: Double
+    /// The point the deskew was rotated about.
+    public var skewPivotX: Double
+    public var skewPivotY: Double
 
     public init(
         rows: [DetectedRow],
         sections: [ScorecardSection],
         skewRadians: Double,
-        medianTextHeight: Double
+        medianTextHeight: Double,
+        skewPivotX: Double = 0.5,
+        skewPivotY: Double = 0.5
     ) {
         self.rows = rows
         self.sections = sections
         self.skewRadians = skewRadians
         self.medianTextHeight = medianTextHeight
+        self.skewPivotX = skewPivotX
+        self.skewPivotY = skewPivotY
+    }
+
+    /// Maps a rect expressed in the deskewed grid back onto the original photograph.
+    ///
+    /// Cell boundaries are derived from the deskewed table, but cropping an image to re-read one cell has
+    /// to happen in the photograph's own coordinates. Skipping this step would crop a neighbouring cell on
+    /// any card that was not photographed square — which is most of them.
+    public func rectInOriginalImageSpace(_ rect: CardRect) -> CardRect {
+        guard skewRadians != 0 else { return rect }
+        return rect.rotatingCenter(by: skewRadians, around: (x: skewPivotX, y: skewPivotY))
     }
 
     /// Every hole number covered by any section, ascending and de-duplicated.
