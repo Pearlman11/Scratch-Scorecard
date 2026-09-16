@@ -2,7 +2,7 @@ import Foundation
 
 /// The first fully verified template, transcribed from the physical Steel Canyon scorecard.
 ///
-/// Steel Canyon is an executive-length course: par 61, with eleven par 3s. That makes it an unusually good
+/// Steel Canyon is an executive-length course: par 61, with twelve par 3s. That makes it an unusually good
 /// regression fixture, because a parser that quietly assumes "par is 70-72" or "a par row averages 4"
 /// breaks here immediately.
 public enum SteelCanyonTemplate {

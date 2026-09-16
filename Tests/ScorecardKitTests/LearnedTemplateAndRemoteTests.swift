@@ -151,24 +151,46 @@ final class LearnedTemplateAndRemoteTests: XCTestCase {
         let parsed = try await ParserTestSupport.parse(card)
         XCTAssertNil(parsed.hole(4)?.playerScore.value)
 
+        let localHole1Confidence = try XCTUnwrap(parsed.hole(1)?.playerScore.confidence)
+
         let payload = RemoteScorecardPayload(
             courseName: "Steel Canyon Golf Club",
             teeName: "White",
             playerName: "J. PEARLMAN",
             holes: [
-                .init(holeNumber: 4, playerScore: 4, confidence: 0.91),
-                .init(holeNumber: 1, playerScore: 8, confidence: 0.70),   // local read this confidently
-                .init(holeNumber: 2, playerScore: 7, confidence: 0.20),   // too unsure to use
+                .init(holeNumber: 4, playerScore: 4, confidence: 0.91),   // local read nothing at all
+                // Clears the minimum, but not by the margin over what the local parser already read.
+                .init(holeNumber: 1, playerScore: 8, confidence: localHole1Confidence + 0.05),
+                .init(holeNumber: 2, playerScore: 7, confidence: 0.20),   // below the minimum entirely
                 .init(holeNumber: 3, playerScore: 99, confidence: 0.99)   // not a golf score
             ]
         )
         let (merged, updated) = RemoteParseMerger.merge(payload: payload, into: parsed)
 
-        XCTAssertEqual(updated, [4])
+        XCTAssertEqual(updated, [4], "Only the hole the local parser could not read should change")
         XCTAssertEqual(merged.hole(4)?.playerScore.value, 4)
         XCTAssertEqual(merged.hole(4)?.playerScore.provenance, .multimodalFallback)
+        XCTAssertEqual(merged.hole(1)?.playerScore.value, 5, "A marginal improvement is not enough to overwrite")
         XCTAssertEqual(merged.hole(2)?.playerScore.value, 4, "A low-confidence remote reading is ignored")
         XCTAssertNotEqual(merged.hole(3)?.playerScore.value, 99, "An implausible remote reading is rejected")
+    }
+
+    func testAClearlyBetterRemoteReadingDoesReplaceAWeakLocalOne() async throws {
+        var card = ScorecardFixtureBuilder.steelCanyonCard(scores: ParserTestSupport.steelCanyonScores)
+        card.rows[5] = card.rows[5].corruptingHole(7, to: "3")
+        let parsed = try await ParserTestSupport.parse(card)
+        let localConfidence = try XCTUnwrap(parsed.hole(7)?.playerScore.confidence)
+        XCTAssertLessThan(localConfidence, 0.8, "Handwriting is never read confidently")
+
+        let payload = RemoteScorecardPayload(
+            courseName: nil, teeName: nil, playerName: nil,
+            holes: [.init(holeNumber: 7, playerScore: 6, confidence: localConfidence + 0.3)]
+        )
+        let (merged, updated) = RemoteParseMerger.merge(payload: payload, into: parsed)
+
+        XCTAssertEqual(updated, [7])
+        XCTAssertEqual(merged.hole(7)?.playerScore.value, 6)
+        XCTAssertEqual(merged.hole(7)?.playerScore.provenance, .multimodalFallback)
     }
 
     func testARemoteReadingNeverOverwritesTheGolfersOwnEdit() async throws {

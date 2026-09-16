@@ -103,12 +103,21 @@ public struct LocalOnlyRemoteVisionService: RemoteScorecardVisionService {
 /// well, and a remote model is not a better source for them.
 public enum RemoteParseMerger {
 
-    /// - Parameter minimumRemoteConfidence: readings below this are ignored entirely.
-    /// - Returns: the merged card and how many scores the remote reading actually changed.
+    /// - Parameters:
+    ///   - minimumRemoteConfidence: readings below this are ignored entirely.
+    ///   - improvementMargin: how much more confident the remote must be before it replaces a value the
+    ///     local parser already read.
+    ///
+    ///     The margin matters because handwritten scores are *never* read confidently — every one of them
+    ///     lands around 0.5. Without a margin, any remote reading clearing the minimum would overwrite
+    ///     every score on the card, including the ones the local parser got right, on what amounts to a
+    ///     coin flip. The remote has to be clearly better, not nominally better.
+    /// - Returns: the merged card and which holes the remote reading actually changed.
     public static func merge(
         payload: RemoteScorecardPayload,
         into scorecard: ParsedScorecard,
-        minimumRemoteConfidence: Double = 0.6
+        minimumRemoteConfidence: Double = 0.6,
+        improvementMargin: Double = 0.15
     ) -> (scorecard: ParsedScorecard, updatedHoles: [Int]) {
         var result = scorecard
         var updated: [Int] = []
@@ -123,8 +132,11 @@ public enum RemoteParseMerger {
             guard ScoreMath.plausibleScoreRange.contains(remoteScore) else { continue }
             let remoteConfidence = remoteHole.confidence ?? 0.5
             guard remoteConfidence >= minimumRemoteConfidence else { continue }
-            // Only improve on a value the local parser was unsure of.
-            guard existing.value == nil || existing.confidence < remoteConfidence else { continue }
+            // An empty cell has nothing to lose, so any acceptable reading fills it. Replacing a value the
+            // local parser did read requires clearing the margin above.
+            if existing.value != nil {
+                guard remoteConfidence >= existing.confidence + improvementMargin else { continue }
+            }
 
             result.holes[index].playerScore = ParsedField(
                 value: remoteScore,

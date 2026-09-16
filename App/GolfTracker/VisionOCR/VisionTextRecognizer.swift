@@ -3,14 +3,12 @@ import UIKit
 import Vision
 import ScorecardKit
 
-/// Disambiguates `TextObservation` for this file.
-///
-/// iOS 18's Vision framework introduced its own `Vision.TextObservation` as part of its Swift-native API,
-/// which collides with ScorecardKit's type of the same name. This is the only file that imports both
-/// frameworks, so the name is resolved once here rather than qualified at every use — and the two types
-/// genuinely are different things: Vision's is a recognizer result, ours is the spatially-anchored token
-/// the parser reasons over.
-private typealias TextObservation = ScorecardKit.TextObservation
+// NOTE: every `TextObservation` below is written as `ScorecardKit.TextObservation`.
+//
+// iOS 18 gave Vision its own Swift-native `Vision.TextObservation`, and this is the only file that imports
+// both frameworks, so the bare name is ambiguous here. Qualifying is also honest: Vision's type is a
+// recognizer result, ours is the spatially-anchored token the parser reasons over, and this file is
+// precisely where one becomes the other.
 
 /// Reads text off a prepared scorecard image using Apple's Vision recognizer.
 ///
@@ -24,10 +22,10 @@ private typealias TextObservation = ScorecardKit.TextObservation
 /// Bounding boxes are preserved throughout. A scorecard is a table, and a recognizer's output reduced to a
 /// list of strings has thrown away the only thing that distinguishes par from a golfer's score.
 protocol ScorecardTextRecognizing: Sendable {
-    func recognizeText(in image: UIImage) async throws -> [TextObservation]
+    func recognizeText(in image: UIImage) async throws -> [ScorecardKit.TextObservation]
     /// Re-reads a single cell from a cropped, upscaled image. Coordinates in the returned observations are
     /// relative to the crop, not the card.
-    func recognizeCell(in croppedImage: UIImage) async throws -> [TextObservation]
+    func recognizeCell(in croppedImage: UIImage) async throws -> [ScorecardKit.TextObservation]
 }
 
 struct VisionTextRecognizer: ScorecardTextRecognizing {
@@ -40,7 +38,7 @@ struct VisionTextRecognizer: ScorecardTextRecognizing {
         "SLOPE", "RATING", "STROKE", "INDEX", "GROSS", "NET"
     ]
 
-    func recognizeText(in image: UIImage) async throws -> [TextObservation] {
+    func recognizeText(in image: UIImage) async throws -> [ScorecardKit.TextObservation] {
         guard let cgImage = image.cgImage else { throw ScorecardParsingError.imageUnreadable("no bitmap") }
 
         // Both passes run against the same bitmap, so their boxes are directly comparable.
@@ -63,7 +61,7 @@ struct VisionTextRecognizer: ScorecardTextRecognizing {
         return merged
     }
 
-    func recognizeCell(in croppedImage: UIImage) async throws -> [TextObservation] {
+    func recognizeCell(in croppedImage: UIImage) async throws -> [ScorecardKit.TextObservation] {
         guard let cgImage = croppedImage.cgImage else { return [] }
         return try await performRecognition(
             on: cgImage,
@@ -80,7 +78,7 @@ struct VisionTextRecognizer: ScorecardTextRecognizing {
         pass: OCRPass,
         usesLanguageCorrection: Bool,
         minimumTextHeight: Float
-    ) async throws -> [TextObservation] {
+    ) async throws -> [ScorecardKit.TextObservation] {
         try await withCheckedThrowingContinuation { continuation in
             let request = VNRecognizeTextRequest { request, error in
                 if let error {
@@ -116,12 +114,12 @@ struct VisionTextRecognizer: ScorecardTextRecognizing {
     /// Vision groups a whole table row into a single observation surprisingly often. Left whole, that row
     /// has one bounding box spanning eighteen columns and is useless for deciding which hole each value
     /// belongs to, so each token is given its own box derived from the recognized text's character ranges.
-    private static func observations(from observation: VNRecognizedTextObservation, pass: OCRPass) -> [TextObservation] {
+    private static func observations(from observation: VNRecognizedTextObservation, pass: OCRPass) -> [ScorecardKit.TextObservation] {
         guard let candidate = observation.topCandidates(3).first else { return [] }
         let alternatives = observation.topCandidates(3).dropFirst().map(\.string)
         let fullText = candidate.string
 
-        var results: [TextObservation] = []
+        var results: [ScorecardKit.TextObservation] = []
         var searchStart = fullText.startIndex
 
         for token in fullText.split(separator: " ", omittingEmptySubsequences: true) {
@@ -136,7 +134,7 @@ struct VisionTextRecognizer: ScorecardTextRecognizing {
                 box = observation.boundingBox
             }
 
-            results.append(TextObservation(
+            results.append(ScorecardKit.TextObservation(
                 text: String(token),
                 rect: CardRect.fromBottomLeftOrigin(
                     x: Double(box.origin.x),
@@ -154,7 +152,7 @@ struct VisionTextRecognizer: ScorecardTextRecognizing {
 
         if results.isEmpty {
             let box = observation.boundingBox
-            results.append(TextObservation(
+            results.append(ScorecardKit.TextObservation(
                 text: fullText,
                 rect: CardRect.fromBottomLeftOrigin(
                     x: Double(box.origin.x),
@@ -178,8 +176,8 @@ struct VisionTextRecognizer: ScorecardTextRecognizing {
     /// what the text *is*, not on raw confidence: for a numeric token the uncorrected pass is right by
     /// construction, and for a word the corrected pass is. Only when the two agree on neither does
     /// confidence decide.
-    func merge(languageCorrected: [TextObservation], numeric: [TextObservation]) -> [TextObservation] {
-        var result: [TextObservation] = []
+    func merge(languageCorrected: [ScorecardKit.TextObservation], numeric: [ScorecardKit.TextObservation]) -> [ScorecardKit.TextObservation] {
+        var result: [ScorecardKit.TextObservation] = []
         var consumedNumeric = Set<Int>()
 
         for corrected in languageCorrected {

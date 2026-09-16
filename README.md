@@ -73,22 +73,53 @@ swift test          # or: Scripts/run-tests.sh
 `ScorecardKit` is pure Foundation, so its tests run on macOS with no simulator. Those are the tests that
 matter most, so they are the fastest to run.
 
-### The app
+### The app, on the Simulator
 
 ```sh
-brew install xcodegen
-Scripts/generate-project.sh
+Scripts/generate-project.sh     # installs XcodeGen via Homebrew if needed, then generates the project
 open GolfTracker.xcodeproj
 ```
 
-Set a development team on the `GolfTracker` target and run on a device. The document scanner needs real
-camera hardware; the Simulator can only use **Import from Photos**.
+Pick any iPhone simulator and press **Run** (⌘R).
+
+The Simulator has no camera, so **Photograph Scorecard** is unavailable there. Use **Import from Photos** —
+drag a scorecard image onto the simulator window first to put it in the photo library. This is the fastest
+way to iterate on parsing.
 
 The Xcode project is generated rather than committed: it is derived entirely from the file tree plus
-`project.yml`, so it cannot drift from the files on disk and adding a file never causes a merge conflict
+`project.yml`, so it cannot drift from the files on disk, and adding a file never causes a merge conflict
 in a three-thousand-line `pbxproj`.
 
----
+### The app, on your iPhone
+
+1. `open GolfTracker.xcodeproj`
+2. Select the **GolfTracker** target → **Signing & Capabilities**.
+3. Tick **Automatically manage signing** and choose your **Team**. If none is listed, add your Apple ID
+   under Xcode → Settings → Accounts; a free Apple ID works.
+4. Change the **Bundle Identifier** to something unique to you — `com.<yourname>.golftracker`. The default
+   `com.golftracker.app` will be rejected if anyone else has already registered it.
+5. Plug in your iPhone, select it as the run destination, press **Run**.
+6. On the phone, the first launch is blocked until you trust the certificate:
+   Settings → General → VPN & Device Management → your Apple ID → **Trust**.
+
+On a free Apple ID the app stops launching after **7 days** and needs re-running from Xcode. A paid Apple
+Developer account ($99/year) extends that to a year and enables TestFlight.
+
+### One command to check everything builds
+
+```sh
+Scripts/build-local.sh          # package, tests, then the app
+Scripts/build-local.sh --kit    # package and tests only (fast)
+```
+
+It prints a compact list of unique compiler errors rather than the raw `xcodebuild` log, which repeats each
+error once per compilation unit.
+
+### CI
+
+`.github/workflows/build.yml` runs the same stages on a macOS runner, cheapest-first: `ScorecardKit` with
+plain SwiftPM (about two minutes), and the iOS app only once the package is green, since it cannot build
+before then.
 
 ## How the parse works
 
@@ -134,7 +165,7 @@ in a three-thousand-line `pbxproj`.
 ## Steel Canyon
 
 Steel Canyon Golf Club (Sandy Springs) is the golden verified template: 18 holes, par 61 (front 31, back
-30), eleven par 3s, with Black (3,842), White (3,397) and Red (2,834) tee yardages. It is an unusually good
+30), twelve par 3s, with Black (3,842), White (3,397) and Red (2,834) tee yardages. It is an unusually good
 regression fixture precisely because it is an executive course — a parser that quietly assumes "par is
 70–72" or "a par row averages 4" breaks on it immediately.
 

@@ -36,20 +36,30 @@ jobs:
 
       # Building before testing separates "does it compile" from "do the tests pass", which are very
       # different failures and worth seeing apart.
+      # `set -o pipefail` is essential: without it the pipe into `tee` returns tee's exit status and a
+      # failing build or test suite reports as a green job.
       - name: Build package
-        run: swift build 2>&1 | tee /tmp/kit-build.log
+        run: |
+          set -o pipefail
+          swift build 2>&1 | tee /tmp/kit-build.log
 
       - name: Run tests
-        run: swift test 2>&1 | tee /tmp/kit-test.log
+        run: |
+          set -o pipefail
+          swift test 2>&1 | tee /tmp/kit-test.log
 
       - name: Failure summary
         if: failure()
         run: |
           echo "::group::Compiler errors"
-          grep -E "error:" /tmp/kit-*.log | sort -u | head -100 || true
+          grep -hE "error:" /tmp/kit-build.log /tmp/kit-test.log 2>/dev/null | grep -v XCTAssert | sort -u | head -80 || true
           echo "::endgroup::"
           echo "::group::Test failures"
-          grep -E "XCTAssert|failed \(" /tmp/kit-test.log | head -60 || true
+          grep -hE "XCTAssert|XCTFail|XCTUnwrap" /tmp/kit-test.log 2>/dev/null \
+            | sed 's|/Users/runner/work/Scratch-Scorecard/Scratch-Scorecard/||' | sort -u | head -80 || true
+          echo "::endgroup::"
+          echo "::group::Suite totals"
+          grep -hE "Executed [0-9]+ tests" /tmp/kit-test.log 2>/dev/null | tail -3 || true
           echo "::endgroup::"
 
   app:
@@ -72,19 +82,22 @@ jobs:
       - name: Build app
         run: |
           set -o pipefail
+          # One architecture only: this job proves the code compiles, and building both arm64 and x86_64
+          # doubles the time for no extra signal.
           xcodebuild build \
             -project GolfTracker.xcodeproj \
             -scheme GolfTracker \
             -destination 'generic/platform=iOS Simulator' \
             -configuration Debug \
+            -arch arm64 \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            ONLY_ACTIVE_ARCH=NO \
             2>&1 | tee /tmp/app-build.log
 
       - name: Failure summary
         if: failure()
         run: |
           echo "::group::Compiler errors"
-          grep -E "error:" /tmp/app-build.log | sort -u | head -100 || true
+          grep -E "error:" /tmp/app-build.log \
+            | sed 's|/Users/runner/work/Scratch-Scorecard/Scratch-Scorecard/||' | sort -u | head -80 || true
           echo "::endgroup::"

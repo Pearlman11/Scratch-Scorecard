@@ -29,9 +29,14 @@ final class SteelCanyonTemplateTests: XCTestCase {
     func testParSequenceMatchesTheCard() {
         let expected = [4, 4, 3, 3, 3, 5, 3, 3, 3, 3, 4, 3, 3, 3, 4, 4, 3, 3]
         XCTAssertEqual(template.pars.map { $0 ?? -1 }, expected)
-        // Steel Canyon is an executive course: eleven par 3s and a single par 5.
-        XCTAssertEqual(expected.filter { $0 == 3 }.count, 11)
+        // Steel Canyon is an executive course: twelve par 3s, five par 4s and a single par 5.
+        // Asserting the whole distribution, not just one bucket, makes the arithmetic self-checking:
+        // 12x3 + 5x4 + 1x5 = 61 across 18 holes.
+        XCTAssertEqual(expected.filter { $0 == 3 }.count, 12)
+        XCTAssertEqual(expected.filter { $0 == 4 }.count, 5)
         XCTAssertEqual(expected.filter { $0 == 5 }.count, 1)
+        XCTAssertEqual(expected.count, 18)
+        XCTAssertEqual(expected.reduce(0, +), 61)
     }
 
     func testHandicapSequenceIsCorrectAndIsAPermutation() {
