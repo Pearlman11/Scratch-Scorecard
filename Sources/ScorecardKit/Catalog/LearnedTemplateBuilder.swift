@@ -102,11 +102,17 @@ public enum LearnedTemplateBuilder {
     }
 
     /// A field may be promoted when the golfer read it off this card, not when another template supplied it.
+    ///
+    /// `.solvedFromSubtotal` is excluded for a different reason than the rest: it is not untrustworthy, it
+    /// is simply never course data. That provenance only ever attaches to a player's score, derived from
+    /// their written OUT or IN total. A par or yardage carrying it would mean something had gone badly
+    /// wrong upstream, and promoting it into a template would turn one card's arithmetic into a claim
+    /// about the course itself.
     private static func isPromotable(_ field: ParsedField<Int>) -> Bool {
         switch field.provenance {
         case .ocr, .userEdited:
             return field.hasValue
-        case .verifiedCourseTemplate, .inferredFromLayout, .multimodalFallback, .none:
+        case .verifiedCourseTemplate, .inferredFromLayout, .multimodalFallback, .solvedFromSubtotal, .none:
             return false
         }
     }

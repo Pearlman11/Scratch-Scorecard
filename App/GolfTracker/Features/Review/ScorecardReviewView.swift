@@ -29,7 +29,7 @@ struct ScorecardReviewView: View {
                 if !viewModel.scorecard.warnings.isEmpty {
                     warningsCard
                 }
-                if viewModel.scorecard.detectedPlayers.count > 1 {
+                if !viewModel.scorecard.detectedPlayers.isEmpty {
                     playerPickerCard
                 }
                 ScorecardGridView(scorecard: $viewModel.scorecard)
@@ -191,14 +191,26 @@ struct ScorecardReviewView: View {
 
     // MARK: - Players
 
+    /// The detected roster, shown whenever any scoring row was found.
+    ///
+    /// Confirming this up front removes a whole class of errors: once the app and the golfer agree on how
+    /// many rows are theirs and which one is which, every later question is about a cell rather than about
+    /// which row it belongs to. Shown even for a single row, because a foursome whose other three rows went
+    /// unread is indistinguishable from a solo round without asking.
     private var playerPickerCard: some View {
-        Button {
+        let players = viewModel.scorecard.detectedPlayers
+        let count = players.count
+
+        return Button {
             showingPlayerPicker = true
         } label: {
             editableRow(
-                title: "Your scores",
-                value: viewModel.scorecard.selectedPlayer?.displayName ?? "Choose which row is yours",
-                detail: "\(viewModel.scorecard.detectedPlayers.count) golfers were found on this card",
+                title: count == 1 ? "Scoring row" : "Your scores",
+                value: viewModel.scorecard.selectedPlayer?.displayName
+                    ?? (count == 1 ? players[0].displayName : "Choose which row is yours"),
+                detail: count == 1
+                    ? "Found 1 row — tap if more golfers were on this card"
+                    : "Found \(count) rows: \(players.map(\.displayName).joined(separator: ", "))",
                 needsAttention: viewModel.scorecard.selectedPlayer == nil
             )
         }

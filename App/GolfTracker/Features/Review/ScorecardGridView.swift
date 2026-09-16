@@ -165,11 +165,19 @@ struct ScorecardGridView: View {
     private func scoreCell(hole: Int) -> some View {
         let field = scorecard.hole(hole)?.playerScore ?? .empty
         let needsReview = field.requiresReview
+        // A score the card's own arithmetic supplied rather than OCR reading the cell. Marked distinctly
+        // from "needs review": it is reliable, but it was derived, and the golfer should be able to see
+        // which numbers came from where without having to ask.
+        let wasSolved = field.provenance == .solvedFromSubtotal
 
         return ZStack {
             if needsReview {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .strokeBorder(Color.orange, lineWidth: 1.5)
+                    .padding(2)
+            } else if wasSolved {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(Theme.accent.opacity(0.65), style: StrokeStyle(lineWidth: 1.5, dash: [3, 2]))
                     .padding(2)
             }
             TextField("", text: scoreBinding(hole: hole))
@@ -183,12 +191,20 @@ struct ScorecardGridView: View {
         .contentShape(Rectangle())
         .accessibilityElement()
         .accessibilityLabel("Hole \(hole) score")
-        .accessibilityValue(field.value.map(String.init) ?? "empty, \(field.level.accessibilityDescription)")
+        .accessibilityValue(accessibilityValue(for: field, wasSolved: wasSolved))
         .accessibilityHint(needsReview ? "This score was hard to read. Double tap to correct it." : "Double tap to edit")
+    }
+
+    private func accessibilityValue(for field: ParsedField<Int>, wasSolved: Bool) -> String {
+        guard let value = field.value else { return "empty, \(field.level.accessibilityDescription)" }
+        return wasSolved ? "\(value), worked out from the total you wrote" : "\(value)"
     }
 
     private func scoreTint(_ field: ParsedField<Int>) -> Color {
         if field.provenance == .userEdited { return .primary }
+        // Arithmetic from the golfer's own subtotal is trustworthy, so it reads as a settled value rather
+        // than inheriting the warning tint that its underlying OCR confidence would otherwise imply.
+        if field.provenance == .solvedFromSubtotal { return .primary }
         return Theme.confidenceTint(field.level, scheme: colorScheme)
     }
 
