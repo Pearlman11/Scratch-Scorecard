@@ -82,14 +82,14 @@ jobs:
       - name: Build app
         run: |
           set -o pipefail
-          # One architecture only: this job proves the code compiles, and building both arm64 and x86_64
-          # doubles the time for no extra signal.
+          # No `-arch` flag: a generic destination already implies the architecture, and passing both is
+          # rejected outright ("destination implies architecture"). Building every simulator architecture
+          # costs a little time and is not worth fighting for.
           xcodebuild build \
             -project GolfTracker.xcodeproj \
             -scheme GolfTracker \
             -destination 'generic/platform=iOS Simulator' \
             -configuration Debug \
-            -arch arm64 \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             2>&1 | tee /tmp/app-build.log
