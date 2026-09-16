@@ -32,8 +32,13 @@ targets:
     dependencies:
       - package: ScorecardKit
         product: ScorecardKit
-    info:
-      path: App/GolfTracker/Resources/Info.plist
+    # No `info:` key here. XcodeGen's target-level `info:` does not point Xcode at an existing plist —
+    # it tells XcodeGen to *generate and overwrite* a plist at that path from its own computed defaults,
+    # every time `xcodegen generate` runs. With one set here it silently clobbered the hand-written
+    # Info.plist below (including NSCameraUsageDescription and both photo-library keys) on every
+    # regenerate, which is why the shipped app crashed the moment it touched the camera despite the
+    # source file on disk always being correct. `INFOPLIST_FILE` + `GENERATE_INFOPLIST_FILE: NO` in
+    # `settings.base` below is sufficient on its own to make Xcode use the file as-is, untouched.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.golftracker.app

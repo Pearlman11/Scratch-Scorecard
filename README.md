@@ -273,10 +273,12 @@ Fixtures are synthetic OCR observations with realistic scorecard geometry, built
 
 ## Known limitations
 
-- **Not yet run on a device or in a simulator.** CI proves both targets compile and that all 101 parser
-  tests pass; nothing here has been exercised against a real camera, a real photo library, or SwiftData on
-  disk. Runtime behaviour — the store opening, permission prompts, the document scanner — is unverified,
-  and that is the next thing to find out.
+- **Compiling proves less than it looks like it does.** CI compiling both targets and passing all 101
+  parser tests did not catch the app crashing the instant it touched the camera on a real device — the
+  built Info.plist was missing its usage-description keys despite the source file always having them (see
+  "How this was built" below). That specific cause is fixed and now guarded in CI, but it is a reminder
+  that plenty of runtime behaviour — SwiftData opening its store correctly, the document scanner's actual
+  UX, permission-prompt wording — still has not been exercised on a device.
 - **Steel Canyon has not been tested against the real photograph.** Synthetic fixtures model glyph
   confusion, skew, dropped cells and layout variation; they do not model motion blur, a folded card, a
   thumb over hole 12, or the specific typeface on the real card. Expect to tune `RowClusterer` tolerances
@@ -311,5 +313,18 @@ Compiling it on a macOS runner then caught four more that no amount of static re
 | The Georgia box admitted Jacksonville | Padding a rectangle around Georgia crosses the Florida line |
 | A `Data.WritingOptions` case that does not exist | Plausible-looking name, wrong by one word |
 
-The lesson worth keeping: a validated algorithm is not a working program, and a green CI badge is not a
-passing test suite. Both had to be checked separately.
+Running the app on a real device then caught the one that mattered most: it crashed the instant it touched
+the camera, because `NSCameraUsageDescription` was missing from the *built* Info.plist — despite always
+being present and correct in the source file. `xcodebuild build` in CI never caught this, because compiling
+doesn't touch the camera. The cause was `project.yml`'s target-level `info:` key, which doesn't reference an
+existing plist the way its name suggests — it tells XcodeGen to *generate and overwrite* a plist at that
+path from its own defaults, silently discarding the hand-written one on every single `xcodegen generate`.
+Removed that key; `INFOPLIST_FILE` + `GENERATE_INFOPLIST_FILE: NO` in `settings.base` is sufficient on its
+own to make Xcode use the file untouched. CI now runs `git diff --exit-code` on the file immediately after
+generating the project, so a regenerate silently clobbering it again fails in under a minute instead of on
+a phone.
+
+The lesson worth keeping: a validated algorithm is not a working program, a green CI badge is not a passing
+test suite, and a build that compiles is not a build that runs. Each had to be checked separately, and each
+was checked at the cheapest point that could have caught it — which is exactly why the `git diff` check
+above runs a full minute before the compile does, not after.

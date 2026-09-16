@@ -83,27 +83,23 @@ jobs:
       - name: Generate project
         run: xcodegen generate
 
-      # Diagnostic: inspect exactly what XcodeGen wrote for Info.plist handling, before spending time on a
-      # full build. The source Info.plist has always had the required keys (checked separately); if this
-      # step shows GENERATE_INFOPLIST_FILE resolving to YES, or INFOPLIST_FILE pointing anywhere but our
-      # file, that is the bug — the `info:` target key and the `settings.base.INFOPLIST_FILE` override may
-      # be interacting in a way that does not match what the XcodeGen docs describe from memory.
-      - name: Diagnose Info.plist wiring in the generated project
+      # A permanent regression guard, not a one-off diagnostic: XcodeGen's target-level `info:` key does
+      # not reference an existing plist, it *generates and overwrites* one at that path from its own
+      # defaults. project.yml no longer sets that key, specifically to stop this — but the whole point of
+      # checking here, right after `xcodegen generate` and before spending minutes on a full compile, is
+      # that a future edit to project.yml could reintroduce it (or something else could clobber the file)
+      # without anyone noticing until the app crashed on a real device touching the camera. `git diff
+      # --exit-code` catches "the file on disk no longer matches what's committed" regardless of the cause.
+      - name: Verify xcodegen did not modify the source Info.plist
         run: |
-          echo "::group::project.pbxproj INFOPLIST settings (as written by XcodeGen)"
-          grep -A1 -E "INFOPLIST_FILE|GENERATE_INFOPLIST_FILE" GolfTracker.xcodeproj/project.pbxproj | head -40
-          echo "::endgroup::"
-          echo "::group::Resolved build settings (as xcodebuild sees them)"
-          xcodebuild -showBuildSettings \
-            -project GolfTracker.xcodeproj \
-            -scheme GolfTracker \
-            -destination 'generic/platform=iOS Simulator' \
-            -configuration Debug 2>&1 | grep -iE "INFOPLIST|GENERATE_INFOPLIST" || echo "(no matching settings found)"
-          echo "::endgroup::"
-          echo "::group::Source Info.plist camera key (sanity check)"
-          /usr/libexec/PlistBuddy -c "Print :NSCameraUsageDescription" App/GolfTracker/Resources/Info.plist \
-            || echo "MISSING FROM SOURCE FILE"
-          echo "::endgroup::"
+          if ! git diff --exit-code -- App/GolfTracker/Resources/Info.plist; then
+            echo "::error::xcodegen generate modified the source Info.plist (diff above). This is what" \
+                 "silently drops NSCameraUsageDescription and the photo-library keys, which crashes the" \
+                 "app the moment it touches the camera. Check project.yml's targets.GolfTracker for a" \
+                 "reintroduced 'info:' key — it must not be set; INFOPLIST_FILE + GENERATE_INFOPLIST_FILE:" \
+                 "NO in settings.base is sufficient on its own."
+            exit 1
+          fi
 
       # `generic/platform=iOS Simulator` compiles for the simulator without booting one, which is both
       # faster and far less flaky than naming a specific device that may not exist on the runner image.
