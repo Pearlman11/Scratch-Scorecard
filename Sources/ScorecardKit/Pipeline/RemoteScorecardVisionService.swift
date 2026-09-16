@@ -4,7 +4,15 @@ import Foundation
 ///
 /// Deliberately minimal and strictly typed. A remote model returns JSON, and the temptation is to thread a
 /// dictionary through the app; this type is the boundary where that JSON becomes Swift or is rejected.
+///
+/// The shape mirrors what a card actually contains — *rows* of handwriting, each with the subtotals the
+/// golfer wrote beside them — rather than a single flat list of scores. That matters for two reasons. A
+/// four-ball card has four rows and the app cannot know which one is the golfer's until they say so. And
+/// the written OUT / IN / TOTAL are what make a remote reading checkable: a row that sums to the total
+/// written next to it has been confirmed by the card itself, which is a far stronger guarantee than a
+/// model's own confidence score.
 public struct RemoteScorecardPayload: Codable, Sendable {
+
     public struct Hole: Codable, Sendable {
         public var holeNumber: Int
         /// The model's reading of the handwritten score. `nil` means it could not read it — which the
@@ -20,34 +28,80 @@ public struct RemoteScorecardPayload: Codable, Sendable {
         }
     }
 
+    /// One handwritten row on the card.
+    public struct Player: Codable, Sendable {
+        /// The name written at the head of the row, when legible.
+        public var name: String?
+        public var holes: [Hole]
+        /// The subtotals written in this row's OUT / IN / TOTAL columns, transcribed separately from the
+        /// per-hole cells so the two readings can be checked against each other.
+        public var writtenOut: Int?
+        public var writtenIn: Int?
+        public var writtenTotal: Int?
+
+        public init(
+            name: String? = nil,
+            holes: [Hole],
+            writtenOut: Int? = nil,
+            writtenIn: Int? = nil,
+            writtenTotal: Int? = nil
+        ) {
+            self.name = name
+            self.holes = holes
+            self.writtenOut = writtenOut
+            self.writtenIn = writtenIn
+            self.writtenTotal = writtenTotal
+        }
+
+        /// The model's reading of one hole, when it returned one.
+        public func hole(_ number: Int) -> Hole? {
+            holes.first { $0.holeNumber == number }
+        }
+    }
+
     public var courseName: String?
     public var teeName: String?
-    public var playerName: String?
-    public var holes: [Hole]
+    public var players: [Player]
 
-    public init(courseName: String?, teeName: String?, playerName: String?, holes: [Hole]) {
+    public init(courseName: String?, teeName: String?, players: [Player]) {
         self.courseName = courseName
         self.teeName = teeName
-        self.playerName = playerName
-        self.holes = holes
+        self.players = players
+    }
+
+    /// Convenience for the single-row case.
+    public init(courseName: String?, teeName: String?, playerName: String?, holes: [Hole]) {
+        self.init(
+            courseName: courseName,
+            teeName: teeName,
+            players: [Player(name: playerName, holes: holes)]
+        )
     }
 }
 
 /// An optional second opinion on a card that local OCR struggled with.
 ///
-/// ## Why this is a protocol with a disabled default
+/// ## Why this exists
 ///
-/// Handwritten scores are meaningfully harder than printed metadata, and a multimodal model is genuinely
-/// better at them. But the MVP must work with no network, no account and no server, so the capability is
-/// declared here and left switched off. `LocalOnlyRemoteVisionService` is the shipping implementation: it
-/// reports that no remote parser is configured, and the app routes uncertain scores to manual review, which
-/// is exactly what it does today.
+/// Printed course data and handwritten scores are not the same problem. Vision's text recognizer is trained
+/// on print, and on a real card it reads every printed row — par, stroke index, yardages — while returning
+/// *nothing at all* for pencil. Not a bad reading: no detection. Everything downstream of that stage,
+/// including the checksum solver, then has nothing to work with. A multimodal model does not share that
+/// blind spot, which is why the handwriting — and only the handwriting — is worth sending out.
+///
+/// ## What a remote reading is allowed to touch
+///
+/// Scores, and nothing else. Par, stroke index, yardage and the course are already restored from a verified
+/// template or read confidently from print, and a remote model is not a better source for them. See
+/// `RemoteParseIntegrator`.
 ///
 /// ## Security
 ///
 /// An implementation of this protocol must **never** hold a model-provider API key. A key shipped in an
-/// iOS binary is a published key — the app bundle is readable by anyone who installs it. Any real
-/// implementation calls a first-party server that holds the credential and proxies the request.
+/// iOS binary is a published key — the app bundle is readable by anyone who installs it, and `strings` on
+/// the binary is all it takes. Any real implementation calls a first-party server that holds the credential
+/// and proxies the request. `ProxiedScorecardVisionService` in the app target is that implementation, and
+/// `Proxy/cloudflare-worker` is the server.
 ///
 /// ## Privacy
 ///
@@ -60,7 +114,9 @@ public protocol RemoteScorecardVisionService: Sendable {
     var hasUserConsent: Bool { get }
 
     /// Requests a structured reading of `imageData`.
-    /// - Parameter holeCount: how many holes the local parser believes the card covers.
+    /// - Parameters:
+    ///   - imageData: the rectified card, as JPEG.
+    ///   - holeCount: how many holes the local parser believes the card covers.
     func parseScorecard(imageData: Data, holeCount: Int) async throws -> RemoteScorecardPayload
 }
 
@@ -84,7 +140,10 @@ public enum RemoteScorecardVisionError: Error, LocalizedError, Sendable {
     }
 }
 
-/// The shipping implementation: there is no remote parser, and the app is fully functional without one.
+/// The default: there is no remote parser, and the app is fully functional without one.
+///
+/// This is what ships until the golfer configures a proxy of their own, and it is what every test runs
+/// against. A build with no server behind it is a working build.
 public struct LocalOnlyRemoteVisionService: RemoteScorecardVisionService {
     public init() {}
     public var isConfigured: Bool { false }
@@ -92,60 +151,5 @@ public struct LocalOnlyRemoteVisionService: RemoteScorecardVisionService {
 
     public func parseScorecard(imageData: Data, holeCount: Int) async throws -> RemoteScorecardPayload {
         throw RemoteScorecardVisionError.notConfigured
-    }
-}
-
-/// Merges a remote reading into a locally-parsed card.
-///
-/// The merge is one-directional and narrow on purpose: a remote result may fill a score the local parser
-/// left empty, or replace one it read poorly, and nothing else. It cannot touch par, stroke index, yardage
-/// or the course — those already come from a verified template or from printed text the local parser read
-/// well, and a remote model is not a better source for them.
-public enum RemoteParseMerger {
-
-    /// - Parameters:
-    ///   - minimumRemoteConfidence: readings below this are ignored entirely.
-    ///   - improvementMargin: how much more confident the remote must be before it replaces a value the
-    ///     local parser already read.
-    ///
-    ///     The margin matters because handwritten scores are *never* read confidently — every one of them
-    ///     lands around 0.5. Without a margin, any remote reading clearing the minimum would overwrite
-    ///     every score on the card, including the ones the local parser got right, on what amounts to a
-    ///     coin flip. The remote has to be clearly better, not nominally better.
-    /// - Returns: the merged card and which holes the remote reading actually changed.
-    public static func merge(
-        payload: RemoteScorecardPayload,
-        into scorecard: ParsedScorecard,
-        minimumRemoteConfidence: Double = 0.6,
-        improvementMargin: Double = 0.15
-    ) -> (scorecard: ParsedScorecard, updatedHoles: [Int]) {
-        var result = scorecard
-        var updated: [Int] = []
-
-        for remoteHole in payload.holes {
-            guard let index = result.holes.firstIndex(where: { $0.holeNumber == remoteHole.holeNumber }) else { continue }
-            let existing = result.holes[index].playerScore
-
-            // The golfer's own correction always wins.
-            guard existing.provenance != .userEdited else { continue }
-            guard let remoteScore = remoteHole.playerScore else { continue }
-            guard ScoreMath.plausibleScoreRange.contains(remoteScore) else { continue }
-            let remoteConfidence = remoteHole.confidence ?? 0.5
-            guard remoteConfidence >= minimumRemoteConfidence else { continue }
-            // An empty cell has nothing to lose, so any acceptable reading fills it. Replacing a value the
-            // local parser did read requires clearing the margin above.
-            if existing.value != nil {
-                guard remoteConfidence >= existing.confidence + improvementMargin else { continue }
-            }
-
-            result.holes[index].playerScore = ParsedField(
-                value: remoteScore,
-                confidence: remoteConfidence,
-                provenance: .multimodalFallback,
-                rawText: existing.rawText
-            )
-            updated.append(remoteHole.holeNumber)
-        }
-        return (result, updated)
     }
 }

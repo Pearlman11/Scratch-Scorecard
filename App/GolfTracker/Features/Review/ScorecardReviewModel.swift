@@ -20,14 +20,24 @@ final class ScorecardReviewModel {
     var showingSaveError = false
     var saveErrorMessage = ""
 
+    /// Where the optional AI read of the handwriting has got to.
+    var remotePhase: RemotePhase = .idle
+    var showingRemoteConsent = false
+
     let templates: [CourseTemplate]
     private let scan: ScorecardScanResult
+    private let remoteSettings: RemoteParserSettings
     private var modelContext: ModelContext?
 
-    init(scan: ScorecardScanResult, templates: [CourseTemplate]) {
+    init(
+        scan: ScorecardScanResult,
+        templates: [CourseTemplate],
+        remoteSettings: RemoteParserSettings = .shared
+    ) {
         self.scan = scan
         self.scorecard = scan.scorecard
         self.templates = templates
+        self.remoteSettings = remoteSettings
         // A scorecard is almost always scanned the day it was played, and the golfer can change it.
         self.datePlayed = Date()
     }
@@ -182,6 +192,99 @@ final class ScorecardReviewModel {
 
     func selectPlayer(_ player: DetectedPlayer) {
         scorecard.selectPlayer(id: player.id)
+    }
+
+    // MARK: - AI read of the handwriting
+
+    enum RemotePhase: Equatable {
+        case idle
+        case running
+        case finished(String)
+        case failed(String)
+
+        var isRunning: Bool { self == .running }
+    }
+
+    /// Whether to offer the AI read at all.
+    ///
+    /// Offered only when a proxy is configured *and* there is something to gain. On a card the local parser
+    /// read cleanly there is nothing for a remote model to add, and sending the photo off the phone for no
+    /// benefit is not a neutral act.
+    var canOfferRemoteParse: Bool {
+        guard remoteSettings.isConfigured else { return false }
+        if case .running = remotePhase { return false }
+        if case .finished = remotePhase { return false }
+        return scorecard.holes.contains { $0.playerScore.requiresReview } || scorecard.detectedPlayers.isEmpty
+    }
+
+    /// The case for pressing the button, in the words of what is actually wrong with this parse.
+    var remoteParseRationale: String {
+        if scorecard.detectedPlayers.isEmpty {
+            return "No handwriting was recognised on this card. An AI read can usually pick out the pencil that on-device recognition misses."
+        }
+        let unread = scorecard.holes.filter { $0.playerScore.requiresReview }.count
+        return "\(unread) score\(unread == 1 ? " is" : "s are") missing or unclear. An AI read can have another go at them."
+    }
+
+    /// Sends the photo for a second reading, then lets the card's own arithmetic check the answer.
+    ///
+    /// Consent is asked once, in words, before the first photo ever leaves the phone — `showingRemoteConsent`
+    /// drives that sheet. Everything else in this app runs on-device, so this is the one place where the
+    /// golfer has to actively decide, and it is not a decision to make on their behalf.
+    func runRemoteParse() async {
+        guard remoteSettings.hasAcceptedPrivacyNotice else {
+            showingRemoteConsent = true
+            return
+        }
+        guard let service = remoteSettings.makeService() else {
+            remotePhase = .failed("No AI parser is set up. Add its address in Settings.")
+            return
+        }
+        guard let data = ProxiedScorecardVisionService.imageData(for: scan.processedImage.original) else {
+            remotePhase = .failed("This photo could not be prepared for sending.")
+            return
+        }
+
+        remotePhase = .running
+        do {
+            let payload = try await service.parseScorecard(
+                imageData: data,
+                holeCount: max(scorecard.holeCount, 18)
+            )
+            let outcome = RemoteParseIntegrator.integrate(payload: payload, into: scorecard)
+            scorecard = outcome.scorecard
+            remotePhase = .finished(Self.summary(for: outcome))
+        } catch let error as RemoteScorecardVisionError {
+            remotePhase = .failed(error.errorDescription ?? "The AI read did not work.")
+        } catch {
+            remotePhase = .failed(error.localizedDescription)
+        }
+    }
+
+    /// Records the golfer's consent and immediately does the thing they consented to.
+    func acceptRemoteConsentAndRun() async {
+        remoteSettings.hasAcceptedPrivacyNotice = true
+        showingRemoteConsent = false
+        await runRemoteParse()
+    }
+
+    private static func summary(for outcome: RemoteParseIntegrator.Outcome) -> String {
+        guard outcome.changedAnything else {
+            return "The AI read did not find anything the card was missing."
+        }
+        var parts: [String] = []
+        if !outcome.adoptedPlayerIDs.isEmpty {
+            let count = outcome.adoptedPlayerIDs.count
+            parts.append("found \(count) score row\(count == 1 ? "" : "s")")
+        }
+        if !outcome.updatedHoles.isEmpty {
+            parts.append("filled \(outcome.updatedHoles.count) score\(outcome.updatedHoles.count == 1 ? "" : "s")")
+        }
+        let corroborated = outcome.audits.filter { $0.verdict.isCorroborated }.count
+        if corroborated > 0 {
+            parts.append("\(corroborated == 1 ? "which adds" : "\(corroborated) of which add") up to the totals on the card")
+        }
+        return "AI read: " + parts.joined(separator: ", ") + "."
     }
 
     // MARK: - Saving

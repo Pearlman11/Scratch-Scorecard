@@ -27,6 +27,12 @@ public struct ParseWarning: Codable, Hashable, Sendable, Identifiable {
         case yardageRowNotFound
         case templateFilledStaticData
         case remoteParserUnavailable
+        /// A remote reading's scores add up to the subtotals written on the card.
+        case remoteParseCorroborated
+        /// A remote reading's scores do not add up to the subtotals written on the card.
+        case remoteParseContradicted
+        /// A remote reading arrived with nothing available to check it against.
+        case remoteParseUnverified
         case duplicateRoundSuspected
     }
 

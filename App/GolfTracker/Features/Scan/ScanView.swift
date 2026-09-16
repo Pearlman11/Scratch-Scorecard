@@ -10,6 +10,7 @@ struct ScanView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var viewModel = ScanViewModel()
     @State private var showingDebugInspector = false
+    @State private var showingSettings = false
 
     var body: some View {
         NavigationStack {
@@ -30,6 +31,14 @@ struct ScanView: View {
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Scan")
             .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showingSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                    .accessibilityLabel("Settings")
+                }
                 #if DEBUG
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -40,6 +49,9 @@ struct ScanView: View {
                     .accessibilityLabel("Parser inspector")
                 }
                 #endif
+            }
+            .sheet(isPresented: $showingSettings) {
+                RemoteParserSettingsView(settings: .shared)
             }
             .fullScreenCover(isPresented: $viewModel.showingScanner) {
                 DocumentScannerView(

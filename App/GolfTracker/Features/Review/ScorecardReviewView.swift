@@ -29,6 +29,9 @@ struct ScorecardReviewView: View {
                 if !viewModel.scorecard.warnings.isEmpty {
                     warningsCard
                 }
+                if viewModel.canOfferRemoteParse || viewModel.remotePhase != .idle {
+                    remoteParseCard
+                }
                 if !viewModel.scorecard.detectedPlayers.isEmpty {
                     playerPickerCard
                 }
@@ -44,6 +47,11 @@ struct ScorecardReviewView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button("Discard", role: .destructive) { dismiss() }
+            }
+        }
+        .sheet(isPresented: $viewModel.showingRemoteConsent) {
+            RemoteParseConsentView {
+                Task { await viewModel.acceptRemoteConsentAndRun() }
             }
         }
         .sheet(isPresented: $showingPhoto) {
@@ -88,6 +96,66 @@ struct ScorecardReviewView: View {
                 showingPlayerPicker = true
             }
         }
+    }
+
+    // MARK: - AI read
+
+    /// Offered, not applied.
+    ///
+    /// The single most valuable thing this app can do for a card whose handwriting went unread is ask a
+    /// model that is good at handwriting — but that is also the only step that leaves the device, so it is
+    /// a button the golfer presses rather than something that happens to them mid-scan.
+    private var remoteParseCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Read the handwriting with AI", systemImage: "sparkles")
+                .font(.headline)
+
+            switch viewModel.remotePhase {
+            case .idle:
+                Text(viewModel.remoteParseRationale)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Button {
+                    Task { await viewModel.runRemoteParse() }
+                } label: {
+                    Text("Read with AI")
+                        .frame(maxWidth: .infinity, minHeight: Theme.minimumTapTarget)
+                }
+                .buttonStyle(.borderedProminent)
+                Text("Sends this photo to the server you configured. Everything else stays on your phone.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
+            case .running:
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("Reading the handwriting…")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(minHeight: Theme.minimumTapTarget)
+
+            case .finished(let summary):
+                Label(summary, systemImage: "checkmark.circle.fill")
+                    .font(.footnote)
+                    .foregroundStyle(Theme.accent)
+                Text("Every score it read is still yours to correct below.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
+            case .failed(let message):
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+                Button("Try again") {
+                    Task { await viewModel.runRemoteParse() }
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Theme.cardPadding)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: Theme.cornerRadius))
     }
 
     // MARK: - Identity

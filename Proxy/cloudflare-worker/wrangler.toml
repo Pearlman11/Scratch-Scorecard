@@ -1,0 +1,12 @@
+name = "golf-scorecard-parser"
+main = "worker.js"
+compatibility_date = "2025-09-01"
+
+# The API key is NOT set here. Set it as an encrypted secret, which is never written to this file and
+# never checked into the repository:
+#
+#   wrangler secret put ANTHROPIC_API_KEY
+#
+# Optional: override the model without redeploying code.
+# [vars]
+# MODEL = "claude-opus-5"
